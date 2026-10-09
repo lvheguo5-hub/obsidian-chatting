@@ -2,6 +2,7 @@
   import type { App } from "obsidian";
   import { Component as ObsidianComponent, MarkdownRenderer, Notice } from "obsidian";
   import type { ToolResult, SelectionScope, ImageAttachment } from "../types";
+  import { normalizeMathMarkdown } from "./math-markdown";
 
   const MAX_IMAGE_COUNT = 4;
   const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -352,14 +353,15 @@
   // Render markdown into a DOM node using Obsidian's renderer. Each render
   // gets its own child component, unloaded when the text changes or the
   // message goes away; with the view itself as the component, everything
-  // the renderer registers would stay loaded until the view closes.
+  // the renderer registers would stay loaded until the view closes. Math
+  // delimiters are normalized for display only; the message stays unchanged.
   function markdown(node: HTMLElement, text: string) {
     let child: ObsidianComponent | null = null;
     const render = (value: string) => {
       if (child) component.removeChild(child);
       child = component.addChild(new ObsidianComponent());
       node.empty();
-      MarkdownRenderer.render(app, value, node, "", child);
+      MarkdownRenderer.render(app, normalizeMathMarkdown(value), node, "", child);
     };
     render(text);
     return {

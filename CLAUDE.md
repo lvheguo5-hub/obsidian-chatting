@@ -39,6 +39,7 @@ src/
   ui/
     chat-view.ts         # ItemView wrapper, mounts Svelte component
     ChatContainer.svelte # All chat UI: messages, input, selection pill
+    math-markdown.ts     # Render-time fix-up: math delimiters, table wiki links
 ```
 
 ## Key Patterns
