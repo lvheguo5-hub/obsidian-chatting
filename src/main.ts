@@ -18,6 +18,8 @@ import { ChatGPTOAuthStore } from "./auth/chatgptOAuthStore";
 import { ChatGPTOAuthService } from "./auth/chatgptOAuth";
 import { migrateOAuthModel as migrateChatGPTOAuthModelSlug, cachedCatalog, catalogIdentity, normalizeCatalogState } from "./api/model-catalog";
 import { setChatGPTOAuthService } from "./api/chatgpt-oauth";
+import { readDebugLog, setDebugLogging } from "./debug";
+import { screenAwake } from "./platform/screen-awake";
 
 const PLUGIN_ID = "chatting-with-ai";
 const LEGACY_PLUGIN_ID = "obsidian-chatting";
@@ -51,6 +53,8 @@ export default class ChatPlugin extends Plugin {
     toolName?: string;
     toolInput?: Record<string, unknown>;
     toolResult?: { result: string; isError: boolean };
+    /** "stopped": the quiet note left by Stop before any answer was shown. */
+    errorKind?: "stopped";
   }> = [];
   /** Set once the saved chat has been read; saves before that would overwrite it. */
   private chatHistoryLoaded = false;
@@ -125,6 +129,13 @@ export default class ChatPlugin extends Plugin {
       callback: () => this.clearChat(),
     });
 
+    // Gets the debug log off a phone: paste it into a note or a message.
+    this.addCommand({
+      id: "copy-debug-log",
+      name: "Copy debug log",
+      callback: () => void this.copyDebugLog(),
+    });
+
     // Editor command: chat about the current note (only when editor is active)
     this.addCommand({
       id: "chat-about-note",
@@ -185,6 +196,7 @@ export default class ChatPlugin extends Plugin {
 
   onunload(): void {
     this.agent?.abort();
+    screenAwake.reset();
     void this.saveChatHistory();
     this.unloaded = true;
   }
@@ -490,6 +502,7 @@ export default class ChatPlugin extends Plugin {
 
     // Load API key for the current provider from SecretStorage
     this.settings.apiKey = this.loadApiKey(this.settings.provider);
+    setDebugLogging(this.settings.debugLog);
   }
 
   async saveSettings(): Promise<void> {
@@ -499,9 +512,27 @@ export default class ChatPlugin extends Plugin {
     // Save all other settings to data.json (syncs), but strip the API key
     const toSave = { ...this.settings, apiKey: "" };
     await this.saveData(toSave);
+    setDebugLogging(this.settings.debugLog);
 
     // Update the chat view header with the new model name and thinking level
-    this.getChatView()?.updateModel(this.modelHeaderLabel());
+    const view = this.getChatView();
+    view?.updateModel(this.modelHeaderLabel());
+    view?.updateEnterSends();
+  }
+
+  /** Copy `debug.log` to the clipboard (the "Debug log" setting writes it). */
+  async copyDebugLog(): Promise<void> {
+    const log = await readDebugLog(this.app);
+    if (!log) {
+      new Notice(this.settings.debugLog ? "The debug log is empty." : "The debug log is empty. Turn on Debug log in settings first.");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(log);
+      new Notice(`Debug log copied (${Math.ceil(log.length / 1024)} KB).`);
+    } catch {
+      new Notice("Couldn't copy the debug log.");
+    }
   }
 
   /** Model name and thinking level, as shown in the chat view header. */
@@ -702,6 +733,8 @@ function normalizeSettings(value: unknown): Partial<ChatSettings> {
     settings.maxIterations = Math.min(100, Math.floor(value.maxIterations));
   }
   if (typeof value.enableWebSearch === "boolean") settings.enableWebSearch = value.enableWebSearch;
+  if (typeof value.enterSends === "boolean") settings.enterSends = value.enterSends;
+  if (typeof value.debugLog === "boolean") settings.debugLog = value.debugLog;
   settings.modelCatalog = normalizeCatalogState(value.modelCatalog);
   return settings;
 }

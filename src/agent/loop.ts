@@ -15,6 +15,7 @@ import { executeTool } from "../tools/executor";
 import { buildContext } from "./context";
 import { buildSystemPrompt, buildContextMessage } from "./system-prompt";
 import { trimHistory } from "./history";
+import { debugLog } from "../debug";
 
 /**
  * The API history: saving keeps the last 80 messages. Before a turn, a
@@ -25,24 +26,6 @@ import { trimHistory } from "./history";
  */
 const MAX_CONVERSATION_LENGTH = 80;
 const KEEP_RECENT = 60;
-
-// Debug logging: writes transcript to the vault's plugin config folder
-const DEBUG = false;
-
-function debugLog(app: App, label: string, data: unknown): void {
-  if (!DEBUG) return;
-  try {
-    const timestamp = new Date().toISOString();
-    const entry = `\n--- ${label} [${timestamp}] ---\n${JSON.stringify(data, null, 2)}\n`;
-    // Use the adapter to write into the current vault config folder.
-    void app.vault.adapter.append(
-      `${app.vault.configDir}/plugins/chatting-with-ai/debug.log`,
-      entry
-    );
-  } catch {
-    // Debug logging should never break the app
-  }
-}
 
 /**
  * The core agentic loop:
@@ -205,6 +188,10 @@ export class AgentLoop {
 
     debugLog(this.app, "USER_MESSAGE", {
       userMessage,
+      // As the model gets it: the context lines first.
+      sent: fullMessage,
+      model: turnSettings.model,
+      provider: turnSettings.provider,
       hasSelection: !!selection,
       imageCount: images.length,
       imageNames: images.map((image) => image.fileName),
@@ -235,7 +222,14 @@ export class AgentLoop {
         return;
       }
 
-      debugLog(this.app, "API_RESPONSE", { stopReason: response.stopReason, contentTypes: response.content.map(b => b.type), usage: response.usage });
+      debugLog(this.app, "API_RESPONSE", {
+        stopReason: response.stopReason, usage: response.usage,
+        // The answer as received: text, and tool calls with their parameters.
+        content: response.content.map((block) =>
+          block.type === "text" ? { type: "text", text: block.text }
+          : block.type === "tool_use" ? { type: "tool_use", name: block.name, input: block.input }
+          : { type: block.type }),
+      });
 
       if (isStopped()) return;
 
@@ -301,6 +295,7 @@ export class AgentLoop {
           callbacks.onAskUser,
           scope
         );
+        debugLog(this.app, "TOOL_CALL", { name: tc.name, input: tc.input, result: result.result, isError: result.isError });
 
         if (isStopped()) return;
         resultBlocks[index] = {

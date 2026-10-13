@@ -3,6 +3,7 @@ import type ChatPlugin from "./main";
 import type { ChatSettings, Provider } from "./types";
 import { DEFAULT_PROVIDER_MODELS } from "./types";
 import type { ChatGPTDeviceAuthorization, PollHandle } from "./auth/chatgptOAuth";
+import { clearDebugLog } from "./debug";
 
 import { type ModelOption, type CatalogState, catalogIdentity, cachedCatalog, refreshCatalog, getCatalogModels, clearCatalogModels, catalogModel, catalogDefaultLevel, resolveThinkingLevel, thinkingLevelLabel, CATALOG_TTL } from "./api/model-catalog";
 
@@ -97,7 +98,9 @@ export class ChatSettingTab extends PluginSettingTab {
       { name: "Custom model ID", visible: () => this.editingCustomModel, render: setting => this.renderCustomModel(setting) },
       { name: "Thinking level", visible: () => !!this.thinkingOptions(), render: setting => this.renderThinkingLevel(setting) },
       { name: "Web search", render: setting => this.renderWebSearch(setting) },
+      { name: "Enter sends message", aliases: ["Keyboard", "New line"], render: setting => this.renderEnterSends(setting) },
       { name: "Max tool iterations", render: setting => this.renderMaxIterations(setting) },
+      { name: "Debug log", aliases: ["Troubleshooting"], render: setting => this.renderDebugLog(setting) },
     ];
   }
 
@@ -129,7 +132,9 @@ export class ChatSettingTab extends PluginSettingTab {
     void this.loadCatalog(false);
 
     this.renderWebSearch(new Setting(containerEl));
+    this.renderEnterSends(new Setting(containerEl));
     this.renderMaxIterations(new Setting(containerEl));
+    this.renderDebugLog(new Setting(containerEl));
   }
 
   private renderProvider(setting: Setting): void {
@@ -177,6 +182,20 @@ export class ChatSettingTab extends PluginSettingTab {
       );
 
   }
+  private renderEnterSends(setting: Setting): void {
+    const s = this.plugin.settings;
+    setting
+      .setName("Enter sends message")
+      .setDesc("On: Enter sends, Shift+Enter starts a new line. Off: Enter starts a new line; send with the send button or Ctrl+Enter (Cmd+Enter on a Mac).")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(s.enterSends)
+          .onChange(async (value) => {
+            s.enterSends = value;
+            await this.plugin.saveSettings();
+          })
+      );
+  }
   private renderMaxIterations(setting: Setting): void {
     const s = this.plugin.settings;
     setting
@@ -194,6 +213,26 @@ export class ChatSettingTab extends PluginSettingTab {
             }
           })
       );
+  }
+
+  private renderDebugLog(setting: Setting): void {
+    const s = this.plugin.settings;
+    setting
+      .setName("Debug log")
+      .setDesc("For troubleshooting: writes requests and errors to debug.log in the plugin folder, including your messages (never keys). Copy it to send it on.")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(s.debugLog)
+          .onChange(async (value) => {
+            s.debugLog = value;
+            await this.plugin.saveSettings();
+          })
+      )
+      .addButton((button) => button.setButtonText("Copy").onClick(() => void this.plugin.copyDebugLog()))
+      .addButton((button) => button.setButtonText("Clear").onClick(async () => {
+        await clearDebugLog(this.app);
+        new Notice("Debug log cleared.");
+      }));
   }
 
   // ─── API key + test (anthropic / openai) ──────────────────────────────────

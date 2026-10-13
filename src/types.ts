@@ -14,6 +14,10 @@ export interface ChatSettings {
   thinkingLevel: string;
   maxIterations: number;
   enableWebSearch: boolean;
+  /** Enter sends (Shift+Enter: new line); off: Enter is a new line, Ctrl/Cmd+Enter sends. */
+  enterSends: boolean;
+  /** Write `debug.log` in the plugin folder (troubleshooting; logs messages, never keys). */
+  debugLog: boolean;
   modelCatalog?: import("./api/model-catalog").CatalogState;
 }
 
@@ -39,6 +43,8 @@ export const DEFAULT_SETTINGS: ChatSettings = {
   thinkingLevel: "",
   maxIterations: 20,
   enableWebSearch: true,
+  enterSends: true,
+  debugLog: false,
 };
 
 // ─── Unified Message Format ─────────────────────────────────────────────────

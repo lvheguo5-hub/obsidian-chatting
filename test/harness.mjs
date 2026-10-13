@@ -26,6 +26,8 @@ export const bundled = await build({
     export { normalizeMathMarkdown } from './src/ui/math-markdown';
     export * as toolLabels from './src/ui/tool-label';
     export { WEB_PAGE_CHARS } from './src/tools/web-page';
+    export * as debug from './src/debug';
+    export { screenAwake } from './src/platform/screen-awake';
   `, resolveDir: process.cwd(), loader: 'ts' },
   bundle: true, write: false, platform: 'node', format: 'esm',
   plugins: [{ name: 'obsidian-test-transport', setup(build) {
@@ -37,6 +39,7 @@ export const bundled = await build({
       export class App {}
       export class Plugin {}
       export class ItemView {}
+      export class Scope { constructor(parent) { this.parent = parent; this.keys = []; } register(modifiers, key, func) { this.keys.push({ modifiers, key, func }); } }
       export class Menu {}
       export const MarkdownRenderer = { render: async () => {} };
       export class Modal {}

@@ -26,6 +26,7 @@ src/
   main.ts                # Plugin entry: commands, views, settings, context menus
   types.ts               # All interfaces and defaults
   settings.ts            # PluginSettingTab with model fetching
+  debug.ts               # Debug log (the "Debug log" setting)
   api/
     client.ts            # Dispatcher: routes to anthropic, openai, or ChatGPT OAuth adapter
     anthropic.ts         # Messages API, adaptive thinking, cache_control
@@ -46,6 +47,8 @@ src/
     ChatContainer.svelte # All chat UI: messages, input, selection pill
     math-markdown.ts     # Render-time fix-up: math delimiters, table wiki links
     tool-label.ts        # One-line labels of tool steps ("Edited Plan")
+  platform/
+    screen-awake.ts      # Keeps the screen on while an answer is generated
 ```
 
 ## Key Patterns
@@ -94,4 +97,4 @@ npm run svelte-check   # Svelte check
 
 ## Debug
 
-Set `DEBUG = true` in `src/agent/loop.ts` to write API calls and errors to `<vault-config-dir>/plugins/chatting-with-ai/debug.log`.
+Turn on **Debug log** in the settings to write each message as sent (with its context lines), the model's answers with their text and tool calls, each tool call with its input and result, and errors to `<vault-config-dir>/plugins/chatting-with-ai/debug.log` (`src/debug.ts`). It includes the user's messages, never keys or tokens. The row's Copy and Clear buttons and the "Copy debug log" command get it off a phone.

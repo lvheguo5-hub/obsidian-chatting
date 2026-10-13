@@ -58,8 +58,13 @@ unknown fields kept, placement without overlap, refs, all or nothing) and
 canvas search in `search_vault`. `web-page.test.mjs`: `read_web_page` with a
 stand-in DOM (the article without scripts and navigation, text answers,
 other types and HTTP errors refused, only http(s), parts of long pages, a
-page without text) and its label. These tests do not establish live-service
-or physical-iOS behavior.
+page without text) and its label. `enter-sends.test.mjs`,
+`debug-log.test.mjs` and `screen-awake.test.mjs`: the *Enter sends message*
+setting (default, kept, passed to the chat), the *Debug log* setting
+(nothing written while off; Copy and Clear; no keys in the log) and the
+screen wake lock (held during a turn, re-acquired on return, released on
+Stop, nothing without the API). These tests do not establish live-service or
+physical-iOS behavior.
 
 Two Node scripts that exercise the ChatGPT/Codex Responses endpoint
 **without** going through Obsidian, so iteration on the

@@ -23,6 +23,7 @@
     toolName?: string;
     toolInput?: Record<string, unknown>;
     toolResult?: ToolResult;
+    errorKind?: "stopped";
   }
 
   interface Props {
@@ -169,8 +170,8 @@
     if (idx !== -1) messages.splice(idx, 1);
   }
 
-  export function addError(text: string): void {
-    messages.push({ id: nextId++, type: "error", text });
+  export function addError(text: string, errorKind?: "stopped"): void {
+    messages.push({ id: nextId++, type: "error", text, errorKind });
   }
 
   export function showAskUser(question: string): Promise<string> {
@@ -228,7 +229,21 @@
     selection = null;
   }
 
+  /** On: Enter sends, Shift+Enter is a new line. Off: Enter is a new line, Ctrl/Cmd+Enter sends. */
+  let enterSends = $state(true);
+
+  export function setEnterSends(on: boolean): void {
+    enterSends = on;
+  }
+
   // ─── Internal handlers ────────────────────────────────────────────────
+
+  /** Ctrl/Cmd+Enter, which Obsidian keeps from the input (see chat-view.ts). */
+  export function sendFromKeyboard(target: EventTarget | null): boolean {
+    if (!target || target !== textareaEl) return false;
+    handleSend();
+    return true;
+  }
 
   function handleSend(): void {
     const text = inputText.trim();
@@ -259,8 +274,9 @@
   }
 
   function handleKeydown(e: KeyboardEvent): void {
-    if (e.isComposing || e.keyCode === 229) return;
-    if (e.key === "Enter" && !e.shiftKey) {
+    // Never while an IME composes.
+    if (e.isComposing || e.keyCode === 229 || e.key !== "Enter") return;
+    if (enterSends ? !e.shiftKey : e.ctrlKey || e.metaKey) {
       e.preventDefault();
       handleSend();
     }
@@ -515,6 +531,10 @@
           </div>
         </details>
 
+      {:else if msg.type === "error" && msg.errorKind === "stopped"}
+        <!-- Stopped before any of the answer arrived: a quiet note, not an error -->
+        <div class="ochatting-stopped-note">{msg.text}</div>
+
       {:else if msg.type === "error"}
         <div class="ochatting-msg ochatting-error-msg">
           <div class="ochatting-msg-content">{msg.text}</div>
@@ -601,6 +621,7 @@
       {placeholder}
       disabled={!inputEnabled}
       rows="1"
+      enterkeyhint={enterSends ? "send" : "enter"}
       onkeydown={handleKeydown}
       onpaste={handlePaste}
       oninput={autoGrow}
@@ -800,6 +821,14 @@
     border-left: 3px solid var(--text-error);
     font-size: var(--font-ui-smaller);
     max-width: 90%;
+  }
+
+  .ochatting-stopped-note {
+    align-self: flex-start;
+    font-size: var(--font-ui-smaller);
+    font-style: italic;
+    color: var(--text-faint);
+    padding: 0 4px;
   }
 
   /* ─── Tool Calls ────────────────────────────────────────────────────── */

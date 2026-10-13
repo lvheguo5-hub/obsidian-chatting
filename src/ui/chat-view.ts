@@ -1,9 +1,10 @@
-import { ItemView, WorkspaceLeaf, Notice, Platform, type App } from "obsidian";
+import { ItemView, WorkspaceLeaf, Notice, Platform, Scope, type App } from "obsidian";
 import { mount, unmount } from "svelte";
 import type { Component } from "svelte";
 import type ChatPlugin from "../main";
 import ChatContainer from "./ChatContainer.svelte";
 import type { ToolResult, SelectionScope, ImageAttachment } from "../types";
+import { screenAwake } from "../platform/screen-awake";
 
 export const VIEW_TYPE_CHAT = "ochatting-view";
 
@@ -54,7 +55,7 @@ interface ChatContainerApi extends Record<string, unknown> {
   addAssistantMessage(text: string): void;
   addToolCall(name: string, input: Record<string, unknown>): number;
   updateToolResult(msgId: number, name: string, result: ToolResult): void;
-  addError(text: string): void;
+  addError(text: string, errorKind?: "stopped"): void;
   showThinking(): void;
   hideThinking(): void;
   showAskUser(question: string): Promise<string>;
@@ -65,6 +66,9 @@ interface ChatContainerApi extends Record<string, unknown> {
   setModel(name: string): void;
   setSelection(selection: SelectionScope): void;
   getSelection(): SelectionScope | null;
+  setEnterSends(on: boolean): void;
+  /** Ctrl/Cmd+Enter in the chat: sends, if `target` is the chat input. */
+  sendFromKeyboard(target: EventTarget | null): boolean;
 }
 
 /**
@@ -78,6 +82,10 @@ export class ObsidianChatView extends ItemView {
   private chatContainer: ChatContainerApi | undefined;
   private running = false;
   private runVersion = 0;
+  /** Some of the running turn's answer is on screen. */
+  private answerShown = false;
+  /** Lets the screen sleep again (the running turn holds it on). */
+  private releaseScreen = (): void => {};
   /** Resolves once onOpen() has mounted the chat UI, or failed to. */
   readonly ready: Promise<void>;
   private markReady!: () => void;
@@ -86,6 +94,10 @@ export class ObsidianChatView extends ItemView {
     super(leaf);
     this.plugin = plugin;
     this.ready = new Promise((resolve) => { this.markReady = resolve; });
+    // Obsidian takes Ctrl/Cmd+Enter as a hotkey before the input sees it.
+    // The view's own scope is asked first, so the chat still sends with it.
+    this.scope = new Scope(this.app?.scope);
+    this.scope.register(["Mod"], "Enter", (evt) => this.chatContainer?.sendFromKeyboard(evt.target) ? false : true);
   }
 
   getViewType(): string {
@@ -181,11 +193,12 @@ export class ObsidianChatView extends ItemView {
           }
           break;
         case "error":
-          this.chatContainer.addError(msg.text!);
+          this.chatContainer.addError(msg.text!, msg.errorKind);
           break;
       }
     }
 
+    this.updateEnterSends();
     this.chatContainer.focus();
   }
 
@@ -217,6 +230,11 @@ export class ObsidianChatView extends ItemView {
     this.chatContainer?.setModel(name);
   }
 
+  /** Enter sends, or starts a new line (the "Enter sends message" setting). */
+  updateEnterSends(): void {
+    this.chatContainer?.setEnterSends(this.plugin.settings.enterSends);
+  }
+
   /** Clear conversation */
   clearConversation(): void {
     this.handleClear();
@@ -243,6 +261,10 @@ export class ObsidianChatView extends ItemView {
     const history = this.plugin.chatHistory;
 
     this.running = true;
+    this.answerShown = false;
+    // The screen stays on while the answer is generated.
+    const releaseScreen = screenAwake.hold();
+    this.releaseScreen = releaseScreen;
     chat.addUserMessage(text, images);
     history.push({ type: "user", text, images });
     chat.setInputEnabled(false);
@@ -257,6 +279,8 @@ export class ObsidianChatView extends ItemView {
         onToolCall: (name, input) => {
           chat.hideThinking();
           if (name === "ask_user") return;
+          // A tool step on screen shows that the turn did something.
+          this.answerShown = true;
           toolCalls.set(name, { id: chat.addToolCall(name, input), input });
         },
         onToolResult: (name, result: ToolResult) => {
@@ -266,11 +290,14 @@ export class ObsidianChatView extends ItemView {
           history.push({ type: "tool-result", toolName: name, toolInput: savedToolInput(call?.input ?? {}), toolResult: result });
         },
         onResponse: (text) => {
+          this.answerShown = true;
           chat.hideThinking();
           chat.addAssistantMessage(text);
           history.push({ type: "assistant", text });
         },
         onAskUser: async (question) => {
+          // The question is the answer so far.
+          this.answerShown = true;
           chat.hideThinking();
           chat.setInputEnabled(true);
           // The chat shows the question and the typed answer; keep both in
@@ -295,6 +322,7 @@ export class ObsidianChatView extends ItemView {
       chat.addError(`Unexpected error: ${msg}`);
       history.push({ type: "error", text: `Unexpected error: ${msg}` });
     } finally {
+      releaseScreen();
       if (isCurrent()) {
         this.running = false;
         chat.setInputEnabled(true);
@@ -307,22 +335,29 @@ export class ObsidianChatView extends ItemView {
 
   private handleStop(): void {
     this.runVersion++;
+    // Nothing of the answer is on screen yet: say that the turn was stopped.
+    const silent = this.running && !this.answerShown;
     this.plugin.agent.abort();
+    // A stopped request may still be waiting for its response.
+    this.releaseScreen();
     this.running = false;
     const chat = this.chatContainer;
     if (chat) {
       // Otherwise the next message would answer the stopped turn's question.
       chat.cancelAskUser();
       chat.hideThinking();
+      if (silent) chat.addError("Stopped.", "stopped");
       chat.setInputEnabled(true);
       chat.focus();
     }
+    if (silent) this.plugin.chatHistory.push({ type: "error", text: "Stopped.", errorKind: "stopped" });
     void this.plugin.saveChatHistory();
   }
 
   private handleClear(): void {
     this.runVersion++;
     this.plugin.agent.clear();
+    this.releaseScreen();
     this.plugin.chatHistory = [];
     this.chatContainer?.clearMessages();
     this.chatContainer?.cancelAskUser();
