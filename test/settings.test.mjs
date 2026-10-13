@@ -151,3 +151,13 @@ test('Custom model ID commits on Enter without requiring blur', async () => {
   assert.equal(plugin.settings.model, 'custom-on-enter');
   assert.equal(plugin.saves, 1);
 });
+
+test('Settings load: no model saved gives the provider default, so adapters need none of their own', async () => {
+  for (const [provider, model] of [[undefined, 'claude-sonnet-4-6'], ['anthropic', 'claude-sonnet-4-6'], ['openai', 'gpt-6.1-sol'], ['chatgpt-oauth', 'gpt-5.5']]) {
+    const plugin = new api.ChatPlugin();
+    plugin.app = { secretStorage: { getSecret: () => '' } };
+    plugin.loadData = async () => (provider ? { provider, model: '' } : null);
+    await plugin.loadSettings();
+    assert.equal(plugin.settings.model, model, String(provider));
+  }
+});

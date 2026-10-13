@@ -1,4 +1,4 @@
-import { catalogIdentity } from "./model-catalog";
+import { type ModelOption, cachedCatalog, catalogIdentity, catalogModel, resolveThinkingLevel } from "./model-catalog";
 import { requestUrl } from "obsidian";
 import { ProviderError, retryAfterMs } from "./errors";
 import type {
@@ -10,6 +10,19 @@ import type {
 } from "../types";
 
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
+
+/**
+ * Thinking mode by model name, for models without catalog data (a custom ID,
+ * or a list saved before the catalog's capabilities were read).
+ * Opus 4.7+ rejects manual thinking. Keep older models on their budget mode.
+ */
+function thinkingTypeByName(model: string): ModelOption["thinkingType"] {
+  const generation = model.match(/^claude-(?:sonnet|opus)-(\d+)[-.](\d{1,2})(?:-|$)/);
+  const supportsAdaptive = !!generation && (Number(generation[1]) > 4 ||
+    (Number(generation[1]) === 4 && Number(generation[2]) >= 6));
+  const supportsThinking = model.includes("claude-sonnet-4") || model.includes("claude-opus") || model.includes("claude-sonnet-3-7");
+  return supportsAdaptive ? "adaptive" : supportsThinking ? "enabled" : undefined;
+}
 
 /**
  * Sends a message to the Anthropic Messages API via requestUrl().
@@ -25,8 +38,11 @@ export async function sendAnthropicMessage(
   tools: UnifiedToolDef[],
   systemPrompt: string
 ): Promise<UnifiedResponse> {
-  const model = settings.model || "claude-sonnet-4-6";
+  const model = settings.model;
   const identity = await catalogIdentity("anthropic", settings.apiKey);
+  if (settings.modelCatalog) {
+    cachedCatalog(settings.modelCatalog, "anthropic", identity);
+  }
   const body: Record<string, unknown> = {
     model,
     max_tokens: 16384,
@@ -42,19 +58,21 @@ export async function sendAnthropicMessage(
     messages: messages.map(msg => toAnthropicMessage(msg, model, identity)),
   };
 
-  // Opus 4.7+ rejects manual thinking. Keep older models on their budget mode.
-  const generation = model.match(/^claude-(?:sonnet|opus)-(\d+)[-.](\d{1,2})(?:-|$)/);
-  const supportsAdaptive = !!generation && (Number(generation[1]) > 4 ||
-    (Number(generation[1]) === 4 && Number(generation[2]) >= 6));
-  const supportsThinking = model.includes("claude-sonnet-4") || model.includes("claude-opus") || model.includes("claude-sonnet-3-7");
+  // The thinking mode the model catalog reports (`/v1/models` capabilities);
+  // models it has no data for keep the rule by model name.
+  const option = catalogModel("anthropic", model);
+  const thinkingType = option?.thinkingType ?? thinkingTypeByName(model);
 
-  if (supportsAdaptive) {
+  if (thinkingType === "adaptive") {
     // Adaptive: Claude decides when/how much to think per request
     body.thinking = { type: "adaptive" };
-  } else if (supportsThinking) {
+  } else if (thinkingType === "enabled") {
     // Manual: fixed budget for older models
     body.thinking = { type: "enabled", budget_tokens: 8192 };
   }
+  // The thinking level picked in settings, if the catalog lists it for the model.
+  const effort = resolveThinkingLevel(option, settings.thinkingLevel);
+  if (effort) body.output_config = { effort };
 
   if (tools.length > 0 || settings.enableWebSearch) {
     const apiTools: Record<string, unknown>[] = tools.map((t, i, arr) => {

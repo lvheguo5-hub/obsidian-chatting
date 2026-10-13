@@ -7,11 +7,25 @@ export interface ChatSettings {
   /** API key for `anthropic` and `openai`. Empty for `chatgpt-oauth` (which uses SecretStorage credentials). */
   apiKey: string;
   model: string;
+  /**
+   * Thinking level as the provider names it (e.g. `"high"`). Empty: the
+   * model's default. The levels on offer come from the model catalog.
+   */
+  thinkingLevel: string;
   maxIterations: number;
   enableWebSearch: boolean;
   modelCatalog?: import("./api/model-catalog").CatalogState;
 }
 
+/**
+ * Each provider's default model: for a new setup, after switching providers,
+ * and when no model is saved (`loadSettings()` always sets one, so the
+ * adapters need no default of their own).
+ *
+ * ChatGPT's is confirmed working in user reports. Other Codex model IDs may
+ * be unavailable to a particular ChatGPT account even when listed in the
+ * CLI catalog.
+ */
 export const DEFAULT_PROVIDER_MODELS: Record<Provider, string> = {
   anthropic: "claude-sonnet-4-6",
   openai: "gpt-6.1-sol",
@@ -21,18 +35,11 @@ export const DEFAULT_PROVIDER_MODELS: Record<Provider, string> = {
 export const DEFAULT_SETTINGS: ChatSettings = {
   provider: "anthropic",
   apiKey: "",
-  model: "claude-sonnet-4-6",
+  model: DEFAULT_PROVIDER_MODELS.anthropic,
+  thinkingLevel: "",
   maxIterations: 20,
   enableWebSearch: true,
 };
-
-/**
- * Default model for the ChatGPT OAuth provider.
- *
- * Confirmed working in user reports. Other Codex model IDs may be unavailable
- * to a particular ChatGPT account even when listed in the CLI catalog.
- */
-export const CHATGPT_OAUTH_DEFAULT_MODEL = "gpt-5.5";
 
 // ─── Unified Message Format ─────────────────────────────────────────────────
 

@@ -29,20 +29,25 @@ Anthropic web search in its documented response shape with the cited sources
 (`anthropic-web-search.test.mjs`), and the OpenAI model list
 (`model-list.test.mjs`). Settings (`settings.test.mjs`): "Custom..." in the
 model dropdown (for `display()`, before Obsidian 1.13, only that it adds the
-custom model row), the iteration limit loaded from `data.json`, and the
-connection Test without web search. `chatgpt-signin.test.mjs`: the ChatGPT
-sign-in (shared token refreshes that keep the refresh token and respect
-Disconnect, one refresh and retry after a 401, device-code polling through
-network errors, and the login dialog ignoring background clicks).
-`selection-scope.test.mjs`: the selection scope the tools enforce (the
-selected copy of repeated text, snapshot relocation, CRLF notes, safe
-deletion, failed-write retries, and refusals outside the selection).
-`math-markdown.test.mjs`: math delimiters and table wiki links normalized
-for rendering, with code left untouched. `tool-label.test.mjs`: the one-line
-labels of tool steps per state, file names without `.md`, searches, renames
-and unknown tools. `phone-layout.test.mjs`: on a phone the chat lifts itself
-by the part of the view the keyboard covers. These tests do not establish
-live-service or physical-iOS behavior.
+custom model row), the iteration limit loaded from `data.json`, the
+provider's default model when none is saved, and the connection Test without
+web search. `chatgpt-signin.test.mjs`: the ChatGPT sign-in (shared token
+refreshes that keep the refresh token and respect Disconnect, one refresh
+and retry after a 401, device-code polling through network errors, and the
+login dialog ignoring background clicks). `selection-scope.test.mjs`: the
+selection scope the tools enforce (the selected copy of repeated text,
+snapshot relocation, CRLF notes, safe deletion, failed-write retries, and
+refusals outside the selection). `math-markdown.test.mjs`: math delimiters
+and table wiki links normalized for rendering, with code left untouched.
+`tool-label.test.mjs`: the one-line labels of tool steps per state, file
+names without `.md`, searches, renames and unknown tools.
+`phone-layout.test.mjs`: on a phone the chat lifts itself by the part of the
+view the keyboard covers. `thinking-level.test.mjs`: the thinking level
+setting (levels from the model catalog, Default, a level the model doesn't
+offer, the chat header, the connection Test at the lightest level) and the
+thinking parameters each provider sends, with the previous rules for models
+the catalog has no data on. These tests do not establish live-service or
+physical-iOS behavior.
 
 Two Node scripts that exercise the ChatGPT/Codex Responses endpoint
 **without** going through Obsidian, so iteration on the
