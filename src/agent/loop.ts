@@ -7,6 +7,7 @@ import type {
   SelectionScope,
   ImageAttachment,
   ToolResult,
+  MentionContext,
 } from "../types";
 import { sendMessage } from "../api/client";
 import { clearOpenAIState } from "../api/openai";
@@ -172,13 +173,17 @@ export class AgentLoop {
     return parts.join("\n");
   }
 
-  /** Run one user turn through the agentic loop; `turnId` marks where it starts. */
+  /**
+   * Run one user turn through the agentic loop; `turnId` marks where it
+   * starts. `mentioned`: the files the message links to, sent before it.
+   */
   async run(
     userMessage: string,
     callbacks: AgentCallbacks,
     selection?: SelectionScope | null,
     images: ImageAttachment[] = [],
-    turnId: string = newTurnId()
+    turnId: string = newTurnId(),
+    mentioned: MentionContext | null = null
   ): Promise<void> {
     const version = ++this.runVersion;
     const isStopped = () => version !== this.runVersion;
@@ -188,9 +193,11 @@ export class AgentLoop {
     // Keep one provider/model/credential configuration for this entire turn.
     const turnSettings = { ...this.settings };
 
-    // Build context once per user turn and prepend to the user message
+    // Build context once per user turn and prepend to the user message;
+    // the files the message links to come next, the message itself last.
     const context = buildContext(this.app);
-    const contextPrefix = buildContextMessage(context);
+    const contextPrefix = mentioned ? `${buildContextMessage(context)}\n\n${mentioned.text}` : buildContextMessage(context);
+    images = [...images, ...mentioned?.images ?? []];
 
     // If there's a selection, inject it as scoped context
     let fullMessage: string;

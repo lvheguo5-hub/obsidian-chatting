@@ -7,6 +7,7 @@ import type { ToolResult, SelectionScope, ImageAttachment, ConversationSummary, 
 import { showInView } from "./show-in-view";
 import { screenAwake } from "../platform/screen-awake";
 import { newTurnId } from "../agent/history";
+import { mentionContext, mentionedFiles } from "./mentions";
 
 export const VIEW_TYPE_CHAT = "ochatting-view";
 
@@ -414,6 +415,11 @@ export class ObsidianChatView extends ItemView {
     const toolCalls = new Map<string, { id: number; input: Record<string, unknown> }>();
 
     try {
+      // The files the message links to go along as they are now; the chat
+      // shows only the typed text.
+      const app = this.plugin.app;
+      const source = app.workspace.getActiveFile()?.path ?? "";
+      const mentioned = await mentionContext(app, mentionedFiles(app, text, source));
       await this.plugin.agent.run(text, {
         onThinking: () => {
           chat.showThinking();
@@ -458,7 +464,7 @@ export class ObsidianChatView extends ItemView {
           chat.addError(error);
           history.push({ type: "error", text: error });
         },
-      }, selection, images, turnId);
+      }, selection, images, turnId, mentioned);
     } catch (e) {
       if (!isCurrent()) return;
       const msg = e instanceof Error ? e.message : String(e);

@@ -34,6 +34,7 @@ export const bundled = await build({
     export * as chatState from './src/chat-state';
     export * as instructions from './src/agent/instructions';
     export * as showInView from './src/ui/show-in-view';
+    export * as mentions from './src/ui/mentions';
   `, resolveDir: process.cwd(), loader: 'ts' },
   bundle: true, write: false, platform: 'node', format: 'esm',
   plugins: [{ name: 'obsidian-test-transport', setup(build) {
@@ -82,6 +83,17 @@ export const bundled = await build({
       // Tags dropped, paragraphs kept: enough to see which content got through.
       export const htmlToMarkdown = node => (typeof node === 'string' ? node : node.innerHTML).replace(/<\\/p>/g, '\\n\\n').replace(/<[^>]+>/g, '').trim();
       export const arrayBufferToBase64 = buffer => Buffer.from(buffer).toString('base64');
+      // Letters in order, any case; fewer gaps score higher (like Obsidian's, roughly).
+      export const prepareFuzzySearch = query => text => {
+        let at = -1, gaps = 0;
+        for (const ch of query.toLowerCase()) {
+          const next = text.toLowerCase().indexOf(ch, at + 1);
+          if (next === -1) return null;
+          if (at !== -1 && next !== at + 1) gaps++;
+          at = next;
+        }
+        return { score: -gaps, matches: [] };
+      };
     `, loader: 'js' }));
   } }],
 });

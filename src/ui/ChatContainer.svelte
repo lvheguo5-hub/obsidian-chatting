@@ -1,7 +1,9 @@
 <script lang="ts">
-  import type { App } from "obsidian";
+  import type { App, TFile } from "obsidian";
   import { Component as ObsidianComponent, MarkdownRenderer, Notice } from "obsidian";
+  import { tick } from "svelte";
   import type { ToolResult, SelectionScope, ImageAttachment, ConversationSummary } from "../types";
+  import { insertMention, mentionAt, mentionCandidates, type MentionQuery } from "./mentions";
   import { normalizeMathMarkdown } from "./math-markdown";
   import { toolLabel } from "./tool-label";
   import { isSendKey } from "./send-key";
@@ -452,7 +454,63 @@
     onSend(text, currentSelection, sentImages);
   }
 
+  // ─── Mentions (`@` or `[[`: link a vault file; its content goes along) ──
+  let mention = $state<MentionQuery | null>(null);
+  let mentionItems = $state<TFile[]>([]);
+  let mentionIndex = $state(0);
+
+  /** Offer files for the mention the caret is in (none: the list closes). */
+  function updateMention(): void {
+    const found = textareaEl ? mentionAt(inputText, textareaEl.selectionStart) : null;
+    mentionItems = found ? mentionCandidates(app, found.query) : [];
+    mention = mentionItems.length ? found : null;
+    mentionIndex = 0;
+  }
+
+  function closeMention(): void {
+    mention = null;
+    mentionItems = [];
+  }
+
+  function chooseMention(file: TFile): void {
+    if (!mention || !textareaEl) return;
+    const source = app.workspace.getActiveFile()?.path ?? "";
+    const next = insertMention(app, inputText, mention, textareaEl.selectionStart, file, source);
+    inputText = next.text;
+    closeMention();
+    const el = textareaEl;
+    void tick().then(() => {
+      el.focus();
+      el.setSelectionRange(next.caret, next.caret);
+      autoGrow();
+    });
+  }
+
+  /** The list's keys: arrows move, Enter or Tab choose, Escape closes. True when handled. */
+  function mentionKey(e: KeyboardEvent): boolean {
+    if (!mention || mentionItems.length === 0 || e.isComposing) return false;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      const step = e.key === "ArrowDown" ? 1 : -1;
+      mentionIndex = (mentionIndex + step + mentionItems.length) % mentionItems.length;
+    } else if ((e.key === "Enter" || e.key === "Tab") && !e.shiftKey) {
+      chooseMention(mentionItems[mentionIndex]);
+    } else if (e.key === "Escape") {
+      closeMention();
+    } else {
+      return false;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    return true;
+  }
+
+  /** The folder a candidate is in, shown after its name. */
+  function folderOf(file: TFile): string {
+    return file.parent && !file.parent.isRoot() ? file.parent.path : "";
+  }
+
   function handleKeydown(e: KeyboardEvent): void {
+    if (mentionKey(e)) return;
     if (e.isComposing || e.keyCode === 229) return;
     if (isSendKey(e, enterSends)) {
       e.preventDefault();
@@ -996,6 +1054,26 @@
     </div>
   {/if}
 
+  {#if mention && mentionItems.length}
+    <!-- Files for the mention being typed; mousedown keeps the focus in the input -->
+    <div class="ochatting-mentions" role="listbox" aria-label="Link a file">
+      {#each mentionItems as file, i (file.path)}
+        <div
+          class="ochatting-mention"
+          class:is-selected={i === mentionIndex}
+          role="option"
+          aria-selected={i === mentionIndex}
+          tabindex="-1"
+          onmousedown={(e) => { e.preventDefault(); chooseMention(file); }}
+          onmousemove={() => { mentionIndex = i; }}
+        >
+          <span class="ochatting-mention-name">{file.extension === "md" ? file.basename : file.name}</span>
+          {#if folderOf(file)}<span class="ochatting-mention-folder">{folderOf(file)}</span>{/if}
+        </div>
+      {/each}
+    </div>
+  {/if}
+
   <!-- Input bar -->
   <div class="ochatting-input-bar">
     <input
@@ -1028,7 +1106,9 @@
       enterkeyhint={enterSends ? "send" : "enter"}
       onkeydown={handleKeydown}
       onpaste={handlePaste}
-      oninput={autoGrow}
+      oninput={() => { autoGrow(); updateMention(); }}
+      onclick={updateMention}
+      onblur={closeMention}
     ></textarea>
     {#if inputEnabled}
       <button
@@ -1950,6 +2030,51 @@
   .ochatting-selection-dismiss:hover {
     background: var(--background-modifier-border);
     color: var(--text-normal);
+  }
+
+  /* ─── Mentions (the file list above the input) ──────────────────────── */
+  .ochatting-mentions {
+    margin: 8px 8px 0;
+    padding: 4px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-m);
+    background: var(--background-primary);
+    box-shadow: var(--shadow-s);
+    max-height: 260px;
+    overflow-y: auto;
+    flex-shrink: 0;
+  }
+
+  .ochatting-mention {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+    padding: 4px 8px;
+    border-radius: var(--radius-s);
+    cursor: pointer;
+    font-size: var(--font-ui-small);
+  }
+
+  .ochatting-mention.is-selected {
+    background: var(--background-modifier-hover);
+  }
+
+  .ochatting-mention-name {
+    flex-shrink: 0;
+    max-width: 70%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .ochatting-mention-folder {
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text-faint);
+    font-size: var(--font-ui-smaller);
   }
 
   /* ─── Responsive ────────────────────────────────────────────────────── */

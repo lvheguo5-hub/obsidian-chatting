@@ -63,6 +63,10 @@ Once sent, the message shows the selection it worked on above it, like a quote.
 
 The agent uses find-and-replace scoped to the selection text, and the tools enforce it for that turn: in that note, only the highlighted copy of the text can change; rewriting the whole note, inserting, setting properties, or renaming or deleting it (or a folder it's in) is refused. The editor snapshot keeps the selected copy anchored when text is added above it. If the selected text changed or its identity is ambiguous, the tools ask you to select it again. Other notes stay editable, and renaming one of them still updates links to it in this note.
 
+## 🔗 Mention notes
+
+Type `@` (at the start or after a space) or `[[` in the input and pick a file: recent files come first, and typing narrows the list. The file goes into your message as a link (`[[Plan]]`). When you send it, the current content of each file the message links to goes along, so the AI doesn't have to look it up first: a note's text (up to 20,000 characters per note, 60,000 per message), a canvas as its outline, an image as an image. Other files go by name only; the AI can read them with its tools. The chat shows only what you typed.
+
 ## ✏️ Edit, copy, regenerate
 
 Click the pencil under a message you sent to change it: the chat continues from there with the same images and selection, and what came after it is dropped. Changes the AI already made to notes stay. Every answer has **Copy** (its Markdown source); the last one also has **Regenerate**. With a mouse the buttons appear on hover; on touch screens they are always shown.

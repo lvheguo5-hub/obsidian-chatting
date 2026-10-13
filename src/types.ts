@@ -123,6 +123,12 @@ export interface ConversationContext {
   fileCount: number;
 }
 
+/** The files a message links to, for the model (`ui/mentions.ts`): their text, and images as images. */
+export interface MentionContext {
+  text: string;
+  images: ImageAttachment[];
+}
+
 // ─── Selection Scope ────────────────────────────────────────────────────────
 
 export interface SelectionScope {

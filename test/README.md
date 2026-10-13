@@ -85,8 +85,10 @@ turns per conversation, and the commands that start a new chat.
 cards, the reused follow tab and Obsidian's match state, canvas cards
 selected and centered, the follow tab closed on unload and at the next
 start, the setting in both settings paths) and `open_document` with a text
-or a card. These tests do not establish live-service or physical-iOS
-behavior.
+or a card. `mentions.test.mjs`: the mention at the caret (`@`, `[[`), the
+files offered and the link put in, and what a sent message's linked files
+add before it (notes capped, canvas outline, images, other files by name).
+These tests do not establish live-service or physical-iOS behavior.
 
 Two Node scripts that exercise the ChatGPT/Codex Responses endpoint
 **without** going through Obsidian, so iteration on the
