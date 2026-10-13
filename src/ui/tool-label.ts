@@ -27,6 +27,7 @@ const VERBS: Record<string, [string, string]> = {
   list_metadata: ["Listing the tags and properties of", "Listed the tags and properties of"],
   read_canvas: ["Reading", "Read"],
   edit_canvas: ["Editing", "Edited"],
+  read_web_page: ["Reading", "Read"],
 };
 
 /** A file path as a reader names it: the file name, without `.md`. */
@@ -48,6 +49,18 @@ function noteFilter(input: Record<string, unknown>): string {
   return `${parts.join(", ")}${folder}`;
 }
 
+/** A web address as short as it reads well: "example.com/docs/intro". */
+function pageLabel(url: unknown): string {
+  if (typeof url !== "string") return "a web page";
+  try {
+    const { hostname, pathname } = new URL(url);
+    const path = pathname.replace(/\/+$/, "");
+    return `${hostname.replace(/^www\./, "")}${path.length > 30 ? `${path.slice(0, 29)}…` : path}`;
+  } catch {
+    return "a web page";
+  }
+}
+
 /** What the tool works on, as the label names it ("" when the verb says it all). */
 function subject(name: string, input: Record<string, unknown>): string {
   switch (name) {
@@ -65,6 +78,8 @@ function subject(name: string, input: Record<string, unknown>): string {
       return noteFilter(input);
     case "list_metadata":
       return typeof input.folder === "string" && input.folder.trim() ? fileLabel(input.folder) : "the vault";
+    case "read_web_page":
+      return pageLabel(input.url);
     default:
       return fileLabel(input.path);
   }

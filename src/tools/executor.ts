@@ -3,6 +3,7 @@ import type { SelectionScope, ToolResult } from "../types";
 import { listMetadata, queryNotes } from "./metadata-query";
 import { getLinks } from "./links";
 import { applyCanvasOperations, canvasSearchTexts, describeCanvas, isCanvasPath, parseCanvas, serializeCanvas } from "./canvas";
+import { readWebPage } from "./web-page";
 
 /** Images the read tools refuse (SVG is text, so they read it). */
 const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "tif", "tiff", "heic", "heif", "avif", "ico"];
@@ -81,6 +82,8 @@ export async function executeTool(
         return await openDocument(app, input);
       case "ask_user":
         return await askUser(input, onAskUser);
+      case "read_web_page":
+        return await readWebPage(input);
       default:
         return { result: `Unknown tool: ${toolName}`, isError: true };
     }

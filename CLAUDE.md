@@ -30,11 +30,12 @@ src/
     anthropic.ts         # Messages API, adaptive thinking, cache_control
     openai.ts            # Responses API, previous_response_id chaining
   tools/
-    registry.ts          # 18 tool definitions (JSON Schema)
+    registry.ts          # 19 tool definitions (JSON Schema)
     executor.ts          # Runs tools against Obsidian Vault APIs
     metadata-query.ts    # query_notes, list_metadata (metadata cache, no file read)
     links.ts             # get_links: linked and unlinked mentions, outgoing links
     canvas.ts            # JSON Canvas: outline, search texts, node/edge operations
+    web-page.ts          # read_web_page: a page's main content as Markdown
   agent/
     loop.ts              # Core agentic loop with selection scope
     context.ts           # Builds vault context (active file, selection)
@@ -88,6 +89,7 @@ npm run svelte-check   # Svelte check
 | list_metadata | `metadataCache.getFileCache()` + `getAllTags()` | Tags and properties with counts |
 | read_canvas | `vault.cachedRead()` | Outline: groups, nodes, edges with IDs and positions |
 | edit_canvas | `vault.process()` | Node/edge operations, all or nothing; keeps unknown fields |
+| read_web_page | `requestUrl()` + `htmlToMarkdown()` | http(s) only; article/main content, 40,000 characters per call; loaded from the user's device |
 
 ## Debug
 

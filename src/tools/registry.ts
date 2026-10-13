@@ -379,4 +379,23 @@ export const TOOL_DEFINITIONS: UnifiedToolDef[] = [
       required: ["question"],
     },
   },
+  {
+    name: "read_web_page",
+    description:
+      "Read a web page at a URL: returns its main content as Markdown (navigation, scripts and the like left out), or the text of a plain-text, Markdown or JSON address. Use it for links the user gives or pages a web search found. Long pages come in parts: call again with 'start' to continue. Pages that need JavaScript to show their content come back empty.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        url: {
+          type: "string",
+          description: "The full http(s) address.",
+        },
+        start: {
+          type: "number",
+          description: "Character to start at, for the next part of a long page (default 0).",
+        },
+      },
+      required: ["url"],
+    },
+  },
 ];

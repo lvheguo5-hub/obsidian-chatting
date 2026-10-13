@@ -25,6 +25,7 @@ export const bundled = await build({
     export { selectionScope } from './src/main';
     export { normalizeMathMarkdown } from './src/ui/math-markdown';
     export * as toolLabels from './src/ui/tool-label';
+    export { WEB_PAGE_CHARS } from './src/tools/web-page';
   `, resolveDir: process.cwd(), loader: 'ts' },
   bundle: true, write: false, platform: 'node', format: 'esm',
   plugins: [{ name: 'obsidian-test-transport', setup(build) {
@@ -69,6 +70,8 @@ export const bundled = await build({
       }
       // A desktop unless a test sets globalThis.__isPhone.
       export const Platform = { get isPhone() { return globalThis.__isPhone === true; } };
+      // Tags dropped, paragraphs kept: enough to see which content got through.
+      export const htmlToMarkdown = node => (typeof node === 'string' ? node : node.innerHTML).replace(/<\\/p>/g, '\\n\\n').replace(/<[^>]+>/g, '').trim();
     `, loader: 'js' }));
   } }],
 });

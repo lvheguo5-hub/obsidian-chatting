@@ -55,7 +55,10 @@ including unresolved ones) and the old name `get_backlinks`.
 `canvas.test.mjs`: the canvas tools against the real executor: the
 `read_canvas` outline, `edit_canvas` operations (Obsidian's file format,
 unknown fields kept, placement without overlap, refs, all or nothing) and
-canvas search in `search_vault`. These tests do not establish live-service
+canvas search in `search_vault`. `web-page.test.mjs`: `read_web_page` with a
+stand-in DOM (the article without scripts and navigation, text answers,
+other types and HTTP errors refused, only http(s), parts of long pages, a
+page without text) and its label. These tests do not establish live-service
 or physical-iOS behavior.
 
 Two Node scripts that exercise the ChatGPT/Codex Responses endpoint
