@@ -3,7 +3,7 @@ import { mount, unmount } from "svelte";
 import type { Component } from "svelte";
 import type ChatPlugin from "../main";
 import ChatContainer from "./ChatContainer.svelte";
-import type { ToolResult, SelectionScope, ImageAttachment } from "../types";
+import type { ToolResult, SelectionScope, ImageAttachment, ConversationSummary } from "../types";
 import { screenAwake } from "../platform/screen-awake";
 import { newTurnId } from "../agent/history";
 
@@ -52,6 +52,12 @@ interface ChatContainerProps {
   onEdit: (turnId: string, text: string) => void;
   onRegenerate: () => void;
   onCopy: (text: string) => void;
+  title: string;
+  onNewChat: () => void;
+  listConversations: () => ConversationSummary[];
+  onOpenConversation: (id: string) => void;
+  onRenameConversation: (id: string, title: string) => void;
+  onDeleteConversation: (id: string) => void;
 }
 
 interface ChatContainerApi extends Record<string, unknown> {
@@ -70,6 +76,7 @@ interface ChatContainerApi extends Record<string, unknown> {
   clearMessages(): void;
   focus(): void;
   setModel(name: string): void;
+  setTitle(title: string): void;
   setSelection(selection: SelectionScope): void;
   getSelection(): SelectionScope | null;
   setEnterSends(on: boolean): void;
@@ -185,33 +192,46 @@ export class ObsidianChatView extends ItemView {
         onEdit: (turnId: string, text: string) => void this.editMessage(turnId, text),
         onRegenerate: () => void this.regenerate(),
         onCopy: (text: string) => this.copyAnswer(text),
+        title: this.plugin.activeConversation.title,
+        onNewChat: () => this.newChat(),
+        listConversations: () => this.plugin.listConversations(),
+        onOpenConversation: (id: string) => this.openConversation(id),
+        onRenameConversation: (id: string, title: string) => this.renameConversation(id, title),
+        onDeleteConversation: (id: string) => this.deleteConversation(id),
       },
     });
 
-    // Replay chat history into the UI
+    this.renderHistory();
+    this.updateEnterSends();
+    this.chatContainer.focus();
+  }
+
+  /** Show the active conversation's history in the UI, replacing what it shows. */
+  renderHistory(): void {
+    const chat = this.chatContainer;
+    if (!chat) return;
+    chat.clearMessages();
     for (const msg of this.plugin.chatHistory) {
       switch (msg.type) {
         case "user":
-          this.chatContainer.addUserMessage(msg.text ?? "", msg.images, msg.turnId, msg.selection);
+          chat.addUserMessage(msg.text ?? "", msg.images, msg.turnId, msg.selection);
           break;
         case "assistant":
-          this.chatContainer.addAssistantMessage(msg.text!);
+          chat.addAssistantMessage(msg.text!);
           break;
         case "tool-result":
           if (msg.toolName && msg.toolResult) {
-            const id = this.chatContainer.addToolCall(msg.toolName, msg.toolInput || {});
-            this.chatContainer.updateToolResult(id, msg.toolName, msg.toolResult);
+            const id = chat.addToolCall(msg.toolName, msg.toolInput || {});
+            chat.updateToolResult(id, msg.toolName, msg.toolResult);
           }
           break;
         case "error":
-          this.chatContainer.addError(msg.text!, msg.errorKind);
+          chat.addError(msg.text!, msg.errorKind);
           break;
       }
     }
-
+    // Turns the API history no longer holds lose their pencil.
     this.updateEditable();
-    this.updateEnterSends();
-    this.chatContainer.focus();
   }
 
   /** Turns the API history no longer holds lose their pencil and Regenerate. */
@@ -256,6 +276,51 @@ export class ObsidianChatView extends ItemView {
   /** Clear conversation */
   clearConversation(): void {
     this.handleClear();
+  }
+
+  // ─── Conversations ──────────────────────────────────────────────────
+  // Switching stops a running turn (as Stop does); what it showed stays in
+  // its conversation.
+
+  /** Start a new conversation (an empty current one is kept instead). */
+  newChat(): void {
+    if (this.running) this.stopTurn();
+    this.plugin.startNewConversation();
+    this.showConversation();
+  }
+
+  /** Switch to conversation `id`. */
+  openConversation(id: string): void {
+    if (id === this.plugin.activeConversationId) return;
+    if (this.running) this.stopTurn();
+    this.plugin.openConversation(id);
+    this.showConversation();
+  }
+
+  /** Rename conversation `id` (empty: back to the automatic title). */
+  renameConversation(id: string, title: string): void {
+    this.plugin.renameConversation(id, title);
+    this.chatContainer?.setTitle(this.plugin.activeConversation.title);
+  }
+
+  /** Delete conversation `id`; for the current one, show the next. */
+  deleteConversation(id: string): void {
+    const active = id === this.plugin.activeConversationId;
+    if (active && this.running) this.stopTurn();
+    this.plugin.deleteConversation(id);
+    if (active) this.showConversation();
+  }
+
+  /** Show the active conversation, ready for input. */
+  private showConversation(): void {
+    const chat = this.chatContainer;
+    if (!chat) return;
+    chat.cancelAskUser();
+    this.renderHistory();
+    chat.setTitle(this.plugin.activeConversation.title);
+    chat.setInputEnabled(true);
+    chat.setBusy(false);
+    chat.focus();
   }
 
   /**
@@ -325,6 +390,8 @@ export class ObsidianChatView extends ItemView {
     const turnId = newTurnId();
     chat.addUserMessage(text, images, turnId, selection ?? undefined);
     history.push({ type: "user", text, images, turnId, ...(selection ? { selection } : {}) });
+    this.plugin.touchConversation();
+    chat.setTitle(this.plugin.activeConversation.title);
     chat.setInputEnabled(false);
     chat.setBusy(true);
 
@@ -427,6 +494,8 @@ export class ObsidianChatView extends ItemView {
     this.plugin.agent.clear();
     this.releaseScreen();
     this.plugin.chatHistory = [];
+    this.plugin.touchConversation();
+    this.chatContainer?.setTitle(this.plugin.activeConversation.title);
     this.chatContainer?.clearMessages();
     this.chatContainer?.cancelAskUser();
     this.running = false;

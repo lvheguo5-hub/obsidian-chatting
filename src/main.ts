@@ -8,13 +8,24 @@ import {
   type TAbstractFile,
   type App,
 } from "obsidian";
-import type { ChatSettings, SelectionScope, ChatHistoryEntry } from "./types";
+import type { ChatSettings, SelectionScope, ChatHistoryEntry, ConversationSummary } from "./types";
 import { DEFAULT_SETTINGS, DEFAULT_PROVIDER_MODELS } from "./types";
 import { copiesBefore } from "./tools/executor";
 import { ChatSettingTab, getModelHeaderLabel } from "./settings";
 import { ObsidianChatView, VIEW_TYPE_CHAT } from "./ui/chat-view";
 import { AgentLoop } from "./agent/loop";
-import { CHAT_STATE_VERSION, migrateChatState, restoreImages, withoutImageData, type ChatState } from "./chat-state";
+import {
+  CHAT_STATE_VERSION,
+  conversationTitle,
+  isEmptyConversation,
+  migrateChatState,
+  newConversation,
+  newestFirst,
+  restoreImages,
+  savedConversation,
+  type ChatState,
+  type ConversationRecord,
+} from "./chat-state";
 import { ChatGPTOAuthStore } from "./auth/chatgptOAuthStore";
 import { ChatGPTOAuthService } from "./auth/chatgptOAuth";
 import { migrateOAuthModel as migrateChatGPTOAuthModelSlug, cachedCatalog, catalogIdentity, normalizeCatalogState } from "./api/model-catalog";
@@ -46,8 +57,12 @@ export default class ChatPlugin extends Plugin {
   agent!: AgentLoop;
   /** ChatGPT OAuth service (used by the chatgpt-oauth provider). */
   chatgptOAuth!: ChatGPTOAuthService;
-  /** Chat messages for replaying into the UI when the view reopens */
-  chatHistory: ChatHistoryEntry[] = [];
+  /**
+   * All conversations. The active one's API history lives in `agent` and
+   * is copied into its record when saving or switching.
+   */
+  conversations: ConversationRecord[] = [newConversation()];
+  activeConversationId = this.conversations[0].id;
   /** Set once the saved chat has been read; saves before that would overwrite it. */
   private chatHistoryLoaded = false;
   /** The chat-state write in progress, and the one queued after it. */
@@ -57,6 +72,21 @@ export default class ChatPlugin extends Plugin {
   private lastChatStateSavedAt = 0;
   /** Once unloaded, only the already queued final save may finish. */
   private unloaded = false;
+
+  /** The conversation the chat view shows. */
+  get activeConversation(): ConversationRecord {
+    return this.conversations.find((conversation) => conversation.id === this.activeConversationId)
+      ?? this.conversations[0];
+  }
+
+  /** The active conversation's messages, for replaying into the UI when the view reopens. */
+  get chatHistory(): ChatHistoryEntry[] {
+    return this.activeConversation.chatHistory;
+  }
+
+  set chatHistory(entries: ChatHistoryEntry[]) {
+    this.activeConversation.chatHistory = entries;
+  }
 
   async onload(): Promise<void> {
     await this.waitForChatStateWrites();
@@ -90,6 +120,9 @@ export default class ChatPlugin extends Plugin {
           item.setTitle("Open chat").setIcon("message-circle").onClick(() => void this.openChat())
         );
         menu.addItem((item) =>
+          item.setTitle("New chat").setIcon("square-pen").onClick(() => void this.newChat())
+        );
+        menu.addItem((item) =>
           item.setTitle("Chat about active note").setIcon("file-text").onClick(() => void this.chatAboutActiveNote())
         );
         menu.addItem((item) =>
@@ -107,6 +140,12 @@ export default class ChatPlugin extends Plugin {
       id: "open-chat",
       name: "Open chat",
       callback: () => void this.openChat(),
+    });
+
+    this.addCommand({
+      id: "new-chat",
+      name: "New chat",
+      callback: () => void this.newChat(),
     });
 
     this.addCommand({
@@ -226,16 +265,26 @@ export default class ChatPlugin extends Plugin {
     return this.activateView();
   }
 
-  /** Open chat and immediately send a message */
-  private async openChatWithMessage(message: string): Promise<void> {
+  /** Opens the chat on a new conversation. */
+  private async newChat(): Promise<void> {
     const view = await this.openChat();
-    view?.sendMessage(message);
+    view?.newChat();
   }
 
-  /** Open chat with a selection scope (shows pill, user types their own question) */
+  /** Open a new chat and immediately send a message */
+  private async openChatWithMessage(message: string): Promise<void> {
+    const view = await this.openChat();
+    if (!view) return;
+    // A new topic: in a new conversation, like the chat apps.
+    view.newChat();
+    view.sendMessage(message);
+  }
+
+  /** Open a new chat with a selection scope (shows pill, user types their own question) */
   private async openChatWithSelection(selection: SelectionScope): Promise<void> {
     const view = await this.openChat();
     if (!view) return;
+    view.newChat();
     view.setSelection(selection);
     view.focus();
   }
@@ -306,10 +355,88 @@ export default class ChatPlugin extends Plugin {
     }
   }
 
+  // ─── Conversations ──────────────────────────────────────────────────
+  // The view stops a running turn before calling these.
+
+  /** Conversations with content, most recently used first (the history list). */
+  listConversations(): ConversationSummary[] {
+    this.storeActiveMessages();
+    return newestFirst(this.conversations)
+      .filter((conversation) => !isEmptyConversation(conversation))
+      .map(({ id, title, updatedAt }) => ({ id, title, updatedAt, active: id === this.activeConversationId }));
+  }
+
+  /** Makes a new empty conversation active; an empty active one is kept instead. */
+  startNewConversation(): void {
+    this.storeActiveMessages();
+    if (isEmptyConversation(this.activeConversation)) return;
+    const conversation = newConversation();
+    this.conversations.push(conversation);
+    this.activate(conversation);
+  }
+
+  /** Makes conversation `id` active. */
+  openConversation(id: string): void {
+    const next = this.conversations.find((conversation) => conversation.id === id);
+    if (!next || next.id === this.activeConversationId) return;
+    this.storeActiveMessages();
+    this.activate(next);
+  }
+
+  /** Renames conversation `id`; an empty name goes back to the automatic title. */
+  renameConversation(id: string, title: string): void {
+    const conversation = this.conversations.find((item) => item.id === id);
+    if (!conversation) return;
+    const name = title.replace(/\s+/g, " ").trim();
+    conversation.customTitle = name !== "";
+    conversation.title = name || conversationTitle(conversation.chatHistory);
+    void this.saveChatHistory();
+  }
+
+  /** Deletes conversation `id`; deleting the active one opens the most recent other, or a new one. */
+  deleteConversation(id: string): void {
+    const deleted = this.conversations.find((conversation) => conversation.id === id);
+    if (!deleted) return;
+    this.conversations = this.conversations.filter((conversation) => conversation !== deleted);
+    if (deleted.id !== this.activeConversationId) {
+      void this.saveChatHistory();
+      return;
+    }
+    const next = newestFirst(this.conversations)[0] ?? newConversation();
+    if (!this.conversations.includes(next)) this.conversations.push(next);
+    this.activate(next);
+  }
+
+  /** Called when a turn starts or the conversation is cleared: order and title. */
+  touchConversation(): void {
+    const conversation = this.activeConversation;
+    conversation.updatedAt = Date.now();
+    if (!conversation.customTitle) conversation.title = conversationTitle(conversation.chatHistory);
+  }
+
+  /** Switches the agent to `next`; an empty conversation left behind is dropped. */
+  private activate(next: ConversationRecord): void {
+    // None when the active conversation was just deleted.
+    const previous = this.conversations.find((conversation) => conversation.id === this.activeConversationId);
+    this.agent.abort();
+    this.activeConversationId = next.id;
+    // Also forgets OpenAI's response to chain to: it belongs to the other conversation.
+    this.agent.importMessages(next.agentMessages);
+    if (previous && previous !== next && isEmptyConversation(previous)) {
+      this.conversations = this.conversations.filter((conversation) => conversation !== previous);
+    }
+    void this.saveChatHistory();
+  }
+
+  /** Copies the agent's history into the active conversation's record. */
+  private storeActiveMessages(): void {
+    if (this.agent) this.activeConversation.agentMessages = this.agent.exportMessages();
+  }
+
   // ─── Chat history persistence ─────────────────────────────────────────
 
   /**
-   * Saves the chat. One write at a time: a save asked for while one is
+   * Saves the chats. One write at a time: a save asked for while one is
    * being written waits for it, and all such calls share that one next
    * write, which takes the state when it starts.
    */
@@ -363,13 +490,18 @@ export default class ChatPlugin extends Plugin {
    */
   private async writeChatState(): Promise<void> {
     try {
+      this.storeActiveMessages();
       const state: ChatState = {
         version: CHAT_STATE_VERSION,
         // Which of the two copies is newer when both are whole.
         savedAt: this.lastChatStateSavedAt = Math.max(Date.now(), this.lastChatStateSavedAt + 1),
-        // Cap at 100 UI messages; image data is saved only in the API history
-        chatHistory: withoutImageData(this.chatHistory.slice(-100)),
-        agentMessages: this.agent.exportMessages(80), // Keep complete API turns
+        activeConversationId: this.activeConversationId,
+        // Per conversation: the last 100 UI entries and 80 API messages
+        // (complete turns); image data only in the API history. An empty
+        // conversation is kept only while it is the active one.
+        conversations: this.conversations
+          .filter((conversation) => conversation.id === this.activeConversationId || !isEmptyConversation(conversation))
+          .map(savedConversation),
       };
       const json = JSON.stringify(state);
       const { adapter } = this.app.vault;
@@ -387,11 +519,15 @@ export default class ChatPlugin extends Plugin {
     if (state === undefined) return;
     if (state) this.lastChatStateSavedAt = state.savedAt ?? 0;
     // Older formats are migrated here; the next save writes the current one.
-    const chat = state && migrateChatState(state);
-    if (chat) {
-      this.agent.importMessages(chat.agentMessages);
-      // The images' data comes from the API history (same image ID).
-      this.chatHistory = restoreImages(chat.chatHistory, this.agent.exportMessages());
+    const saved = state && migrateChatState(state);
+    if (saved) {
+      // The images' data comes from each conversation's API history (same image ID).
+      for (const conversation of saved.conversations) {
+        conversation.chatHistory = restoreImages(conversation.chatHistory, conversation.agentMessages);
+      }
+      this.conversations = saved.conversations;
+      this.activeConversationId = saved.activeConversationId;
+      this.agent.importMessages(this.activeConversation.agentMessages);
     }
     this.chatHistoryLoaded = true;
   }
@@ -700,22 +836,35 @@ interface PersistedChatState {
   savedAt?: number;
   chatHistory?: unknown;
   agentMessages?: unknown;
+  activeConversationId?: unknown;
+  conversations?: unknown;
 }
 
 function isPersistedChatState(value: unknown): value is PersistedChatState {
   if (!isRecord(value) || Array.isArray(value)) return false;
   if ("version" in value && (typeof value.version !== "number" || !Number.isInteger(value.version) || value.version < 1)) return false;
+  if ("savedAt" in value && (typeof value.savedAt !== "number" || !Number.isFinite(value.savedAt) || value.savedAt < 0)) return false;
+  // From version 3 on, the two histories are kept per conversation.
+  if (typeof value.version === "number" && value.version >= 3) {
+    if ("activeConversationId" in value && typeof value.activeConversationId !== "string") return false;
+    return Array.isArray(value.conversations) && value.conversations.every(conversation =>
+      isRecord(conversation) && !Array.isArray(conversation) && typeof conversation.id === "string" &&
+      isSavedHistories(conversation, false));
+  }
   // From version 2 on, image data is saved only in the API history.
-  const imagesWithData = typeof value.version !== "number" || value.version < 2;
+  return isSavedHistories(value, typeof value.version !== "number" || value.version < 2);
+}
+
+/** A saved chat's `chatHistory` and `agentMessages`: at least one of them, each a list of valid entries. */
+function isSavedHistories(value: Record<string, unknown>, imagesWithData: boolean): boolean {
   if (!Array.isArray(value.chatHistory) && !Array.isArray(value.agentMessages)) return false;
   if ("chatHistory" in value && !Array.isArray(value.chatHistory)) return false;
   if ("agentMessages" in value && !Array.isArray(value.agentMessages)) return false;
   if (Array.isArray(value.chatHistory) && !value.chatHistory.every(entry => isChatHistoryEntry(entry, imagesWithData))) return false;
-  if (Array.isArray(value.agentMessages) && !value.agentMessages.every(message =>
+  return !Array.isArray(value.agentMessages) || value.agentMessages.every(message =>
     isRecord(message) && (message.role === "user" || message.role === "assistant") &&
     (typeof message.content === "string" || (Array.isArray(message.content) &&
-      message.content.every(block => isRecord(block) && typeof block.type === "string"))))) return false;
-  return !("savedAt" in value) || (typeof value.savedAt === "number" && Number.isFinite(value.savedAt) && value.savedAt >= 0);
+      message.content.every(block => isRecord(block) && typeof block.type === "string"))));
 }
 
 function isChatHistoryEntry(entry: unknown, imagesWithData = true): boolean {

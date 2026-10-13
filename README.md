@@ -67,6 +67,10 @@ The agent uses find-and-replace scoped to the selection text, and the tools enfo
 
 Click the pencil under a message you sent to change it: the chat continues from there with the same images and selection, and what came after it is dropped. Changes the AI already made to notes stay. Every answer has **Copy** (its Markdown source); the last one also has **Regenerate**. With a mouse the buttons appear on hover; on touch screens they are always shown.
 
+## 💬 Chats
+
+The chat header shows the current chat's title, taken from your first message. **New chat** (the pen icon) starts a new one; so do the *New chat* command and the ribbon icon's right-click menu, and *Chat about this note* and *Send selection to chat* always start a new chat. The clock icon opens your chats, most recent first: open one to go on with it, rename it with the pencil, or delete it (you confirm first). **Clear** (the trash icon) empties only the current chat. The chat you had open is open again after a restart. Starting a new chat, switching, or deleting the current chat stops an answer that is still running; what it showed so far stays in its chat. Each chat sends only its own messages to the provider.
+
 ## 📋 Your instructions in AGENTS.md
 
 Put standing instructions for the AI (writing style, where new notes go, how you structure things) in an `AGENTS.md` note at the root of your vault; every chat follows them. A folder can have its own `AGENTS.md` for the notes in it: the AI gets it the first time in a chat that it reads or changes a file there, and it adds to the vault-wide one. The file follows the [agents.md](https://agents.md) convention, so other AI tools that read `AGENTS.md` use the same instructions. **Settings → Vault instructions** opens the file, or creates it with a short comment.
@@ -181,7 +185,7 @@ ln -s "$(pwd)" /path/to/vault/.obsidian/plugins/chatting-with-ai
 | **Three sane providers** | Anthropic + OpenAI for stability, ChatGPT account for users who'd rather not manage an API key. |
 | **Secrets in the keychain** | API keys and OAuth credentials go through Obsidian SecretStorage. They never land in `data.json`, so they never sync to other devices. |
 | **No vault indexing** | Linear search, capped. Predictable, no background work, no memory pressure on phones. |
-| **Conversation persists** | Chat history survives Obsidian restarts. Stored locally in `chat-state.json`, never synced. |
+| **Conversations persist** | Your chats survive Obsidian restarts. Stored locally in `chat-state.json`, never synced. |
 | **Right sidebar on mobile** | Slides in from the edge — your document stays visible underneath. |
 
 ## 🗺️ Roadmap
@@ -191,7 +195,8 @@ ln -s "$(pwd)" /path/to/vault/.obsidian/plugins/chatting-with-ai
 - [x] iOS / Android parity
 - [x] Selection scope
 - [x] Official Obsidian Community Plugins listing
-- [ ] Multi-conversation history with archive / search
+- [x] Multi-conversation history: new chat, switch, rename, delete
+- [ ] Archive and search of past conversations
 - [x] Image attachments where the provider supports them
 - [x] Dynamic provider catalogs with automatic refresh when the 24-hour cache expires
 
@@ -202,7 +207,7 @@ Have a request? Open an issue.
 <details>
 <summary><b>Will my notes be uploaded somewhere?</b></summary>
 
-Only what the agent needs for the current turn. When you ask a question, the agent decides which tools to call — `read_document`, `search_vault`, etc. — and the contents fetched by those calls (plus the active note context) are sent to your chosen provider. Images you attach are sent with that message and kept in the local chat history until you clear the conversation or the message is older than the part of the chat the plugin keeps for the provider; so are images the agent looks at (`view_image`, `view_canvas`). Nothing is uploaded in the background. There is no vault index. Your vault's root `AGENTS.md`, if there is one, goes with every message; a folder's `AGENTS.md` goes with the first tool result in that folder. When the agent reads a web page (`read_web_page`), your device loads that address, as a browser would, and the page's text goes to your provider like a note's.
+Only what the agent needs for the current turn. When you ask a question, the agent decides which tools to call — `read_document`, `search_vault`, etc. — and the contents fetched by those calls (plus the active note context) are sent to your chosen provider. Images you attach are sent with that message and kept in the local chat history until you clear or delete the chat or the message is older than the part of the chat the plugin keeps for the provider; so are images the agent looks at (`view_image`, `view_canvas`). Nothing is uploaded in the background. There is no vault index. Your vault's root `AGENTS.md`, if there is one, goes with every message; a folder's `AGENTS.md` goes with the first tool result in that folder. When the agent reads a web page (`read_web_page`), your device loads that address, as a browser would, and the page's text goes to your provider like a note's.
 
 </details>
 
@@ -230,7 +235,7 @@ Probably not — keeping the provider list small is a deliberate choice. Two API
 <details>
 <summary><b>Where is chat history stored? Will it sync?</b></summary>
 
-Locally in `<vault>/.obsidian/plugins/chatting-with-ai/chat-state.json`, with a second copy in `chat-state.next.json` to recover from an interrupted save. If neither copy can be read, existing files are kept as `chat-state.corrupt-<time>.json` or `chat-state.next.corrupt-<time>.json` instead of being overwritten; a chat saved by a newer version of the plugin is kept as `chat-state.v<version>-<time>.json` when you go back to an older one. If a backup cannot be made, saving is disabled for that session and a notice explains why. It is **not** synced by Obsidian Sync (plugin data files are excluded by default). API keys live in the OS keychain via SecretStorage and are also not synced. Attached images are saved once, with the recent messages kept for the provider, until you clear the conversation; in older messages the chat shows just the image's name. Images the agent looked at are kept the same way, in the part of the chat kept for the provider.
+Locally, all chats in one file: `<vault>/.obsidian/plugins/chatting-with-ai/chat-state.json`, with a second copy in `chat-state.next.json` to recover from an interrupted save. If neither copy can be read, existing files are kept as `chat-state.corrupt-<time>.json` or `chat-state.next.corrupt-<time>.json` instead of being overwritten; chats saved by a newer version of the plugin are kept as `chat-state.v<version>-<time>.json` when you go back to an older one. If a backup cannot be made, saving is disabled for that session and a notice explains why. It is **not** synced by Obsidian Sync (plugin data files are excluded by default). API keys live in the OS keychain via SecretStorage and are also not synced. Attached images are saved once, with the recent messages kept for the provider, until you clear or delete the chat; in older messages the chat shows just the image's name. Images the agent looked at are kept the same way, in the part of the chat kept for the provider.
 
 </details>
 

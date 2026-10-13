@@ -27,7 +27,7 @@ src/
   settings.ts            # PluginSettingTab with model fetching
   debug.ts               # Debug log (the "Debug log" setting)
   images.ts              # Image limits and re-encoding for view_image and view_canvas
-  chat-state.ts          # Saved chat format (chat-state.json), one-time migrations
+  chat-state.ts          # Saved chats (chat-state.json): conversation records, one-time migrations
   api/
     client.ts            # Dispatcher: routes to anthropic or openai adapter
     anthropic.ts         # Messages API, adaptive thinking, cache_control
@@ -47,7 +47,7 @@ src/
     instructions.ts      # The vault's AGENTS.md files (root: system prompt; folders: tool results)
   ui/
     chat-view.ts         # ItemView wrapper, mounts Svelte component
-    ChatContainer.svelte # All chat UI: messages, input, selection pill
+    ChatContainer.svelte # All chat UI: messages, input, selection pill, chats list
     math-markdown.ts     # Render-time fix-up: math delimiters, table wiki links
     tool-label.ts        # One-line labels of tool steps ("Edited Plan")
     send-key.ts          # Which key sends (or saves an edit): "Enter sends message"
@@ -62,12 +62,13 @@ src/
 - **Anthropic `cache_control`**: Breakpoints on system prompt and last tool definition.
 - **Thinking level from the model catalog**: The setting offers the levels the catalog lists for the selected model (Codex `supported_reasoning_levels`, Anthropic `/v1/models` `capabilities.effort`); Anthropic's thinking mode comes from `capabilities.thinking.types`. Without catalog data the previous rules apply: Anthropic thinking by model name, Codex `medium` for reasoning models, and OpenAI API-key requests `medium` for reasoning models (its model list has no levels).
 - **Per-provider API keys**: Stored as `ochat-api-key-anthropic` / `ochat-api-key-openai` in `SecretStorage`.
-- **In-memory chat persistence**: `AgentLoop` and `chatHistory` live on the plugin instance, surviving view open/close cycles.
+- **In-memory chat persistence**: `AgentLoop` and the conversations live on the plugin instance, surviving view open/close cycles. `chatHistory` is the active conversation's; the agent holds its API history, copied into its record when saving.
 - **Selection scope**: Injected into user message with scoping instructions, and enforced by `executeTool` for that turn: in the selected note only `edit_document` `find_replace` inside the selection (located by its offset and in-memory editor snapshot; changes outside the range can relocate it, while changed or ambiguous selections are refused) succeeds; other changes to that note, or renaming/deleting a folder it is in, are refused. Other notes stay editable.
+- **Conversations**: One `AgentLoop`, for the active conversation. New chat, switching and deleting the active conversation stop a running turn first (`chat-view.ts`); `activate()` then imports the next conversation's API history, which also clears OpenAI's chaining state, so `previous_response_id` never crosses conversations. The title is the first user message (40 characters) until renamed. An empty conversation isn't listed and is dropped when left.
 - **Panel layout**: The chat view turns off Obsidian's `.view-content` padding and scrolling (`styles.css`) and pads its own parts. On desktop it keeps the bottom padding, which keeps it clear of the status bar (not needed in the left sidebar). In the phone sidebar it keeps 24px for the tab menu's fade below and turns off the 48px fade over the view with the floating navigation; Obsidian doesn't shrink the sidebar for the keyboard, so `chat-view.ts` measures how much of the view the keyboard covers and lifts the chat by that (`--ochatting-lift`). The safe area is left to Obsidian's containers.
 - **Turn IDs**: Each user turn has an ID on its `chatHistory` entry and on its first message in `AgentLoop` (`ask_user` answers have none). Editing a message or regenerating the last answer cuts both histories just before that turn (`cutBeforeTurn`; a new array, so OpenAI replays it in full) and runs the turn again with its images and selection. Chats saved before turn IDs get them in the one-time migration of `chat-state.json` (`assignLegacyTurnIds`, only while no turn has one).
 - **Images in tool results**: `ToolResult.images` (`view_image`, `view_canvas`) go to the model inside the tool result (Anthropic image blocks; OpenAI and ChatGPT `function_call_output` as an `input_text` + `input_image` list). Only the agent history keeps them; the chat view and its saved `chatHistory` get the text and "[1 image sent to the model]". Requests leave out the images of tool results older than the last 2 user turns, with a note in their place (`withoutOldToolImages`); the stored history keeps them, and attached images are always sent.
-- **Saved chat format**: `chat-state.json` has a `version` (2); a file without one is version 1. Older formats are migrated once on load (`migrateChatState` in `src/chat-state.ts`) and the next save writes the current one. A newer version than the plugin knows (saved by a later release, before a downgrade) isn't read: it is copied to `chat-state.v<version>-<time>.json` and the chat starts empty, so the next save doesn't overwrite it. Image data is saved only in the API history; the visible history keeps each image's ID, name, type and size and gets the data back by ID on load (`restoreImages`). An image the API history no longer holds shows as a chip with its name and isn't sent again on edit or regenerate.
+- **Saved chat format**: `chat-state.json` has a `version` (3): `{ version, savedAt, activeConversationId, conversations: [{ id, title, customTitle, createdAt, updatedAt, chatHistory, agentMessages }] }`; a file without a version is version 1. Older formats are migrated once on load (`migrateChatState` in `src/chat-state.ts`; 2 → 3 makes the single chat the first, active conversation) and the next save writes the current one. A newer version than the plugin knows (saved by a later release, before a downgrade) isn't read: it is copied to `chat-state.v<version>-<time>.json` and the chat starts empty, so the next save doesn't overwrite it. Each conversation keeps the last 100 visible entries and 80 API messages. Image data is saved only in the API history; the visible history keeps each image's ID, name, type and size and gets the data back by ID on load (`restoreImages`). An image the API history no longer holds shows as a chip with its name and isn't sent again on edit or regenerate.
 
 ## Build
 

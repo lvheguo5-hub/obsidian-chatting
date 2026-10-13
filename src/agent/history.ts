@@ -5,6 +5,12 @@ function startsUserTurn(message: UnifiedMessage): boolean {
     message.content.some(block => block.type === "text" || block.type === "image"));
 }
 
+/**
+ * API messages kept per conversation: sent, saved and restored. Trimming
+ * keeps whole user turns, so a long turn can keep a few more.
+ */
+export const MAX_CONVERSATION_LENGTH = 80;
+
 /** Keep whole user turns so pruning/persistence cannot orphan tool results. */
 export function trimHistory(messages: UnifiedMessage[], limit: number): UnifiedMessage[] {
   const firstTurn = messages.findIndex(startsUserTurn);

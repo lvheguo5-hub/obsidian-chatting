@@ -23,7 +23,7 @@ function fakeChat() {
     updateToolResult() {},
     addError(value) { chat.shown.push({ id: nextId++, type: 'error', text: value }); },
     showThinking() {}, hideThinking() {}, setInputEnabled() {}, setBusy() {},
-    clearMessages() { chat.shown = []; }, focus() {}, setModel() {}, setSelection() {}, getSelection: () => null,
+    clearMessages() { chat.shown = []; }, focus() {}, setModel() {}, setTitle() {}, setSelection() {}, getSelection: () => null,
   };
   return chat;
 }
@@ -67,7 +67,7 @@ test('The saved chat holds each image\'s data once, in the API history', async (
   assert.equal(typeof saved.savedAt, 'number');
   assert.equal(count(json, one.data), 1);
   assert.equal(count(json, two.data), 1);
-  assert.deepEqual(saved.chatHistory.find(e => e.type === 'user').images, [
+  assert.deepEqual(saved.conversations[0].chatHistory.find(e => e.type === 'user').images, [
     { id: 'one', fileName: 'one.png', mediaType: 'image/png', sizeBytes: one.sizeBytes },
     { id: 'two', fileName: 'two.png', mediaType: 'image/png', sizeBytes: two.sizeBytes },
   ]);
@@ -139,8 +139,9 @@ test('A chat saved without a version is migrated once: turn IDs, image data only
 });
 
 test('A chat in the current format is taken as it is; an unknown older version is no saved chat', () => {
-  const current = { version: api.chatState.CHAT_STATE_VERSION, chatHistory: [{ type: 'user', text: 'Q', images: [one] }], agentMessages: [] };
-  assert.deepEqual(api.chatState.migrateChatState(current).chatHistory, current.chatHistory);
+  const chatHistory = [{ type: 'user', text: 'Q', images: [one] }];
+  const current = { version: api.chatState.CHAT_STATE_VERSION, activeConversationId: 'c1', conversations: [{ id: 'c1', title: 'Q', customTitle: false, createdAt: 1, updatedAt: 1, chatHistory, agentMessages: [] }] };
+  assert.deepEqual(api.chatState.migrateChatState(current).conversations[0].chatHistory, chatHistory);
   assert.equal(api.chatState.migrateChatState({ version: 0, chatHistory: [] }), null);
   assert.equal(api.chatState.migrateChatState([]), null);
 });

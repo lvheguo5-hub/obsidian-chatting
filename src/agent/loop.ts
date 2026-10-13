@@ -16,7 +16,7 @@ import { executeTool } from "../tools/executor";
 import { buildContext } from "./context";
 import { folderInstructions, instructionsGiven, rootInstructions, toolPaths } from "./instructions";
 import { buildSystemPrompt, buildContextMessage } from "./system-prompt";
-import { trimHistory, cutBeforeTurn, editableTurn, newTurnId } from "./history";
+import { trimHistory, cutBeforeTurn, editableTurn, newTurnId, MAX_CONVERSATION_LENGTH } from "./history";
 import { debugLog } from "../debug";
 
 /**
@@ -26,7 +26,6 @@ import { debugLog } from "../debug";
  * chain to its previous response. Both keep whole user turns, so they
  * round up: a long turn can keep a few more messages.
  */
-const MAX_CONVERSATION_LENGTH = 80;
 const KEEP_RECENT = 60;
 
 /**
