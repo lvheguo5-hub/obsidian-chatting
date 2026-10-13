@@ -31,7 +31,7 @@ function fakeChat() {
     showThinking() {}, hideThinking() {},
     showAskUser(question) { chat.addAssistantMessage(question); return new Promise(resolve => { chat.askUser = resolve; }); },
     cancelAskUser() { const resolve = chat.askUser; chat.askUser = null; resolve?.(''); },
-    setInputEnabled() {}, setBusy(value) { chat.busy = value; },
+    setInputEnabled() {}, setBusy(value) { chat.busy = value; }, foldTurn() {},
     clearMessages() { chat.shown = []; }, focus() {}, setModel() {},
     title: null, setTitle(value) { chat.title = value; },
     setSelection() {}, getSelection: () => null,

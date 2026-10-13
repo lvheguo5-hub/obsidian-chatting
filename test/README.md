@@ -91,8 +91,11 @@ add before it (notes capped, canvas outline, images, other files by name).
 `undo.test.mjs`: undo per answer (edits, new files and folders, renames and
 deletes taken back last first, files changed since named and asked about,
 the changes row and its state after a restart, undo kept within its
-conversation, and the note for the model with the next turn only). These
-tests do not establish live-service or physical-iOS behavior.
+conversation, and the note for the model with the next turn only).
+`fold-turn.test.mjs`: which rows of a finished turn fold into one line above
+its answer (steps, a text that led into one, the changes row; not an
+ask_user question, the answer or a single step without changes). These tests
+do not establish live-service or physical-iOS behavior.
 
 Two Node scripts that exercise the ChatGPT/Codex Responses endpoint
 **without** going through Obsidian, so iteration on the

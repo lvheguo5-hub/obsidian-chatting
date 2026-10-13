@@ -7,6 +7,7 @@
   import { normalizeMathMarkdown } from "./math-markdown";
   import { isSendKey } from "./send-key";
   import { fileLabel, toolLabel } from "./tool-label";
+  import { foldPlan } from "./fold-turn";
   import type { ChangesState } from "./chat-view";
 
   const MAX_IMAGE_COUNT = 4;
@@ -21,7 +22,7 @@
 
   interface ChatMessage {
     id: number;
-    type: "user" | "assistant" | "tool-call" | "tool-result" | "error" | "thinking" | "changes";
+    type: "user" | "assistant" | "tool-call" | "tool-result" | "error" | "thinking" | "changes" | "steps";
     text?: string;
     images?: ImageAttachment[];
     toolName?: string;
@@ -36,6 +37,12 @@
     changesState?: ChangesState;
     /** Changes rows: opened into the list of files. */
     changesOpen?: boolean;
+    /** Steps rows (a finished turn's work, folded): its tool steps and the texts that led into them. */
+    steps?: ChatMessage[];
+    /** Steps rows: opened into the steps and files. */
+    stepsOpen?: boolean;
+    /** Tool steps: opened into their parameters and result (built only then). */
+    toolOpen?: boolean;
   }
 
   interface Props {
@@ -358,8 +365,32 @@
   }
 
   export function setChangesUndone(turnId: string): void {
-    const row = messages.find((m) => m.type === "changes" && m.turnId === turnId);
+    const row = messages.find((m) => (m.type === "changes" || m.type === "steps") && m.turnId === turnId);
     if (row) row.changesState = "undone";
+  }
+
+  /** A finished turn's work folds into one row right above its answer (`foldPlan`). */
+  export function foldTurn(turnId: string): void {
+    const plan = foldPlan(messages, turnId);
+    if (!plan) return;
+    const { at, steps, changes } = plan;
+    const gone = new Set<ChatMessage>(changes ? [...steps, changes] : steps);
+    const row: ChatMessage = {
+      id: nextId++, type: "steps", turnId, steps,
+      ...(changes ? { files: changes.files, changesState: changes.changesState } : {}),
+    };
+    const kept = (m: ChatMessage) => !gone.has(m);
+    messages = [...messages.slice(0, at).filter(kept), row, ...messages.slice(at).filter(kept)];
+  }
+
+  /** A steps row's label: what changed, or how many steps it folds. */
+  function stepsLabel(msg: ChatMessage): string {
+    const count = (msg.steps ?? []).filter((m) => m.type === "tool-call" || m.type === "tool-result").length;
+    const steps = count === 1 ? "1 step" : `${count} steps`;
+    const files = msg.files ?? [];
+    if (!files.length) return steps;
+    const verb = msg.changesState === "undone" ? "Undid the changes to" : "Changed";
+    return `${verb} ${files.map(fileLabel).join(", ")} · ${steps}`;
   }
 
   /** Open a changed file (one that no longer exists is left alone). */
@@ -793,6 +824,37 @@
   </div>
 {/snippet}
 
+{#snippet toolStep(msg: ChatMessage)}
+  {@const state = msg.type === "tool-call" ? "running" : msg.toolResult?.isError ? "error" : "done"}
+  <!-- One line per tool step ("Edited Plan"); parameters and result open on click -->
+  <details class="ochatting-tool" class:is-error={state === "error"} ontoggle={(e) => (msg.toolOpen = e.currentTarget.open)}>
+    <summary class="ochatting-tool-row">
+      {#if state === "running"}
+        <span class="ochatting-spinner"></span>
+      {:else if state === "error"}
+        <svg class="ochatting-tool-icon" aria-label="Failed" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+      {:else}
+        <svg class="ochatting-tool-icon" aria-label="Done" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>
+      {/if}
+      <span class="ochatting-tool-label">{toolLabel(msg.toolName ?? "", msg.toolInput ?? {}, state)}</span>
+      <span class="ochatting-tool-chevron" aria-hidden="true"></span>
+    </summary>
+    <!-- Built when opened: a long chat has many steps -->
+    {#if msg.toolOpen}
+      <div class="ochatting-tool-body">
+        {#if msg.toolInput && Object.keys(msg.toolInput).length > 0}
+          <div class="ochatting-tool-section">Parameters</div>
+          <pre class="ochatting-tool-json">{truncate(JSON.stringify(msg.toolInput, null, 2), 2000)}</pre>
+        {/if}
+        {#if msg.toolResult}
+          <div class="ochatting-tool-section">{state === "error" ? "Error" : "Result"}</div>
+          <pre class="ochatting-tool-json">{truncate(msg.toolResult.result ?? "", 2000)}</pre>
+        {/if}
+      </div>
+    {/if}
+  </details>
+{/snippet}
+
 <div class="ochatting-container">
   <!-- Header -->
   <div class="ochatting-header">
@@ -1006,30 +1068,57 @@
         </div>
 
       {:else if msg.type === "tool-call" || msg.type === "tool-result"}
-        {@const state = msg.type === "tool-call" ? "running" : msg.toolResult?.isError ? "error" : "done"}
-        <!-- One line per tool step ("Edited Plan"); parameters and result open on click -->
-        <details class="ochatting-tool" class:is-error={state === "error"}>
-          <summary class="ochatting-tool-row">
-            {#if state === "running"}
-              <span class="ochatting-spinner"></span>
-            {:else if state === "error"}
-              <svg class="ochatting-tool-icon" aria-label="Failed" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+        {@render toolStep(msg)}
+
+      {:else if msg.type === "steps"}
+        {@const files = msg.files ?? []}
+        {@const failed = (msg.steps ?? []).filter((m) => m.type === "tool-result" && m.toolResult?.isError).length}
+        <!-- A finished turn's work in one row above its answer; open: the steps, then the changed files -->
+        <details class="ochatting-changes ochatting-steps" class:is-undone={msg.changesState === "undone"} bind:open={msg.stepsOpen}>
+          <summary class="ochatting-changes-row">
+            {#if failed}
+              <svg class="ochatting-tool-icon ochatting-steps-failed" aria-label={failed === 1 ? "A step failed" : `${failed} steps failed`} xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg>
+            {:else if files.length}
+              <svg class="ochatting-tool-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"></path><path d="M14 2v6h6"></path></svg>
             {:else}
-              <svg class="ochatting-tool-icon" aria-label="Done" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>
+              <svg class="ochatting-tool-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>
             {/if}
-            <span class="ochatting-tool-label">{toolLabel(msg.toolName ?? "", msg.toolInput ?? {}, state)}</span>
+            <span class="ochatting-changes-label" title={files.join("\n")}>{stepsLabel(msg)}</span>
             <span class="ochatting-tool-chevron" aria-hidden="true"></span>
+            {#if msg.changesState === "undoable" && msg.turnId}
+              {@const turnId = msg.turnId}
+              <button
+                class="ochatting-action-btn ochatting-changes-undo"
+                type="button"
+                disabled={busy}
+                onclick={(e) => { e.preventDefault(); e.stopPropagation(); onUndo(turnId); }}
+                aria-label="Undo these changes"
+                title="Undo: put these files back as they were before this answer"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"></path><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"></path></svg>
+              </button>
+            {/if}
           </summary>
-          <div class="ochatting-tool-body">
-            {#if msg.toolInput && Object.keys(msg.toolInput).length > 0}
-              <div class="ochatting-tool-section">Parameters</div>
-              <pre class="ochatting-tool-json">{truncate(JSON.stringify(msg.toolInput, null, 2), 2000)}</pre>
-            {/if}
-            {#if msg.toolResult}
-              <div class="ochatting-tool-section">{state === "error" ? "Error" : "Result"}</div>
-              <pre class="ochatting-tool-json">{truncate(msg.toolResult.result ?? "", 2000)}</pre>
-            {/if}
-          </div>
+          <!-- Built when opened: a long chat has many folded turns -->
+          {#if msg.stepsOpen}
+            <div class="ochatting-steps-body">
+              {#each msg.steps ?? [] as step (step.id)}
+                {#if step.type === "assistant"}
+                  <div class="ochatting-step-text" use:markdown={step.text ?? ""}></div>
+                {:else}
+                  {@render toolStep(step)}
+                {/if}
+              {/each}
+              {#if files.length}
+                <div class="ochatting-steps-files-label">{msg.changesState === "undone" ? "Changed back" : "Changed files"}</div>
+                <ul class="ochatting-changes-list">
+                  {#each files as path (path)}
+                    <li><button type="button" class="ochatting-changes-file" onclick={() => openChanged(path)} title={path}>{path}</button></li>
+                  {/each}
+                </ul>
+              {/if}
+            </div>
+          {/if}
         </details>
 
       {:else if msg.type === "error" && msg.errorKind === "stopped"}
@@ -1859,6 +1948,59 @@
   .ochatting-changes-undo {
     margin-left: auto;
     flex-shrink: 0;
+  }
+
+  /* A folded turn: a quiet line like a step (no box), undo right after it;
+     open, its steps hang below on a thin guide line, then the changed files */
+  .ochatting-changes.ochatting-steps {
+    border: none;
+  }
+
+  .ochatting-steps > .ochatting-changes-row {
+    padding: 2px 4px;
+    border-radius: var(--radius-s);
+  }
+
+  .ochatting-steps .ochatting-changes-undo {
+    margin-left: 0;
+  }
+
+  .ochatting-steps-body {
+    display: flex;
+    flex-direction: column;
+    margin: 2px 0 4px 10px;
+    padding-left: 8px;
+    border-left: 1px solid var(--background-modifier-border);
+  }
+
+  .ochatting-step-text {
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+  }
+
+  .ochatting-step-text :global(p) {
+    margin: 2px 0;
+  }
+
+  .ochatting-steps-failed {
+    color: var(--text-error);
+  }
+
+  .ochatting-steps-files-label {
+    margin-top: 4px;
+    padding: 0 4px;
+    /* As visible as the step lines above it */
+    color: var(--text-muted);
+  }
+
+  /* Open: the changed files as a bulleted list */
+  .ochatting-steps .ochatting-changes-list {
+    padding: 0 4px 2px 22px;
+    list-style: disc;
+  }
+
+  .ochatting-steps .ochatting-changes-list li::marker {
+    color: var(--text-muted);
   }
 
   /* Open: the files one per line */

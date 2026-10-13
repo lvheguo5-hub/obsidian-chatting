@@ -163,7 +163,7 @@ function fakeChat() {
     addChanges(turnId, files, state) { chat.shown.push({ id: nextId++, type: 'changes', turnId, files, changesState: state }); },
     setChangesUndone(turnId) { const row = chat.shown.find(m => m.type === 'changes' && m.turnId === turnId); if (row) row.changesState = 'undone'; },
     showThinking() {}, hideThinking() {}, cancelAskUser() {},
-    setInputEnabled() {}, setBusy() {}, clearMessages() { chat.shown = []; }, focus() {}, setModel() {}, setTitle() {},
+    setInputEnabled() {}, setBusy() {}, folded: [], foldTurn(turnId) { chat.folded.push(turnId); }, clearMessages() { chat.shown = []; }, focus() {}, setModel() {}, setTitle() {},
     setSelection() {}, getSelection: () => null,
   };
   return chat;
@@ -349,4 +349,15 @@ test('Clear drops a pending note; a stopped turn\'s row goes before the next tur
   await stopped;
   await next;
   assert.deepEqual(plugin.chatHistory.map(e => e.type === 'user' ? e.text : e.type), ['Rewrite my plan', 'tool-result', 'changes', 'Something else', 'assistant']);
+});
+
+test('A finished turn folds its steps: when it ends, and every finished turn again after a redraw', async () => {
+  const { plugin, view, chat } = await chatSetup();
+  editingModel();
+  await view.handleUserMessage('Rewrite my plan', null);
+  const turnId = plugin.chatHistory[0].turnId;
+  assert.deepEqual(chat.folded, [turnId]);
+  chat.folded = [];
+  view.renderHistory();
+  assert.deepEqual(chat.folded, [turnId]);
 });

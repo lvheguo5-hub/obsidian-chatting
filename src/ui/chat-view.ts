@@ -94,6 +94,8 @@ interface ChatContainerApi extends Record<string, unknown> {
   /** The row of files a turn changed; "kept": its undo was lost when Obsidian closed. */
   addChanges(turnId: string, files: string[], state: ChangesState): void;
   setChangesUndone(turnId: string): void;
+  /** A finished turn: its steps fold into one row above the answer. */
+  foldTurn(turnId: string): void;
 }
 
 export type ChangesState = "undoable" | "undone" | "kept";
@@ -251,6 +253,9 @@ export class ObsidianChatView extends ItemView {
           break;
       }
     }
+    // Finished turns show folded; a running one is the last and stays open.
+    const turnIds = this.plugin.chatHistory.flatMap((entry) => entry.type === "user" && entry.turnId ? [entry.turnId] : []);
+    for (const turnId of this.running ? turnIds.slice(0, -1) : turnIds) chat.foldTurn(turnId);
     // Turns the API history no longer holds lose their pencil.
     this.updateEditable();
   }
@@ -494,6 +499,8 @@ export class ObsidianChatView extends ItemView {
     } finally {
       releaseScreen();
       if (!changes.isEmpty()) this.addChanges(history, turnId, changes);
+      // The turn is over: its steps fold into one row above the answer.
+      chat.foldTurn(turnId);
       if (isCurrent()) {
         // The history's limit may have cut older turns off.
         this.updateEditable();

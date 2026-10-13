@@ -38,6 +38,7 @@ export const bundled = await build({
     export { TFile, TFolder } from 'obsidian';
     export { ChangeLog } from './src/tools/undo';
     export { UndoConfirmModal } from './src/ui/undo-confirm';
+    export { foldPlan } from './src/ui/fold-turn';
   `, resolveDir: process.cwd(), loader: 'ts' },
   bundle: true, write: false, platform: 'node', format: 'esm',
   plugins: [{ name: 'obsidian-test-transport', setup(build) {
