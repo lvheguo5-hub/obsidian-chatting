@@ -46,6 +46,8 @@
   let textareaEl: HTMLTextAreaElement | undefined = $state();
   let fileInputEl: HTMLInputElement | undefined = $state();
   let attachments = $state<ImageAttachment[]>([]);
+  // The input shows a scrollbar only once its text is taller than it can grow.
+  let inputScrollable = $state(false);
   let nextId = 0;
 
   // Selection scope (shown as a pill above input)
@@ -268,11 +270,13 @@
     if (!textareaEl) return;
     textareaEl.style.height = "auto";
     textareaEl.style.height = Math.min(textareaEl.scrollHeight, 300) + "px";
+    inputScrollable = textareaEl.scrollHeight > 300;
   }
 
   function resetHeight(): void {
     if (!textareaEl) return;
     textareaEl.style.height = "auto";
+    inputScrollable = false;
   }
 
   function imageDataUrl(image: ImageAttachment): string {
@@ -446,7 +450,19 @@
       <span class="ochatting-header-title">Chat</span>
       <span class="ochatting-header-model">{displayModel || "No model"}</span>
     </div>
-    <button class="ochatting-clear-btn" onclick={onClear}>Clear</button>
+    <!-- Nothing to clear in an empty chat: the trash folds away until there is -->
+    <button
+      class="ochatting-clear-btn"
+      class:ochatting-clear-folded={messages.length === 0}
+      type="button"
+      onclick={onClear}
+      tabindex={messages.length === 0 ? -1 : undefined}
+      aria-hidden={messages.length === 0 ? "true" : undefined}
+      aria-label="Clear conversation"
+      title="Clear conversation"
+    >
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+    </button>
   </div>
 
   <!-- Messages -->
@@ -579,6 +595,7 @@
     </button>
     <textarea
       class="ochatting-input"
+      class:ochatting-input-scrollable={inputScrollable}
       bind:this={textareaEl}
       bind:value={inputText}
       {placeholder}
@@ -644,19 +661,44 @@
     color: var(--text-muted);
   }
 
+  /* Clear: a red trash icon (it empties the conversation) */
   .ochatting-clear-btn {
-    font-size: var(--font-ui-smaller);
-    color: var(--text-muted);
-    background: none;
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+    padding: 0;
     border: none;
-    cursor: pointer;
-    padding: 4px 8px;
     border-radius: var(--radius-s);
+    background: none;
+    box-shadow: none;
+    color: var(--text-error);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: width 200ms ease, min-width 200ms ease, margin 200ms ease, opacity 150ms ease, transform 200ms ease;
   }
 
   .ochatting-clear-btn:hover {
     background: var(--background-modifier-hover);
-    color: var(--text-normal);
+  }
+
+  /* Folds away in an empty chat */
+  .ochatting-clear-folded {
+    width: 0;
+    min-width: 0;
+    margin-right: -4px; /* takes the header's gap with it, so no empty space is left */
+    opacity: 0;
+    transform: scale(0.5);
+    overflow: hidden;
+    pointer-events: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ochatting-clear-btn {
+      transition: none;
+    }
   }
 
   /* ─── Messages ──────────────────────────────────────────────────────── */
@@ -961,26 +1003,31 @@
     opacity: 0.5;
   }
 
+  /* No safe-area inset here: Obsidian's containers already keep it free. */
   .ochatting-input-bar {
+    /* The buttons and one line of the input share this height, so they line up. */
+    --ochatting-control: 36px;
     display: flex;
+    /* Buttons stay at the bottom while the input grows to more lines. */
     align-items: flex-end;
     gap: 8px;
     padding: 8px 12px;
-    padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
     border-top: 1px solid var(--background-modifier-border);
     background: transparent;
     flex-shrink: 0;
   }
 
   .ochatting-attach-btn {
-    width: 34px;
-    height: 34px;
-    min-width: 34px;
-    min-height: 34px;
+    width: var(--ochatting-control);
+    height: var(--ochatting-control);
+    min-width: var(--ochatting-control);
+    min-height: var(--ochatting-control);
     padding: 0;
     border: none;
     border-radius: 50%;
-    background: transparent;
+    /* A light circle the size of the send button; Obsidian's button shadow off */
+    background: var(--background-modifier-hover);
+    box-shadow: none;
     color: var(--text-muted);
     cursor: pointer;
     display: flex;
@@ -989,8 +1036,24 @@
     flex-shrink: 0;
   }
 
+  /* Icons in proportion to the control size */
+  .ochatting-attach-btn svg {
+    width: calc(var(--ochatting-control) * 0.5);
+    height: calc(var(--ochatting-control) * 0.5);
+  }
+
+  .ochatting-send-btn svg {
+    width: calc(var(--ochatting-control) * 0.46);
+    height: calc(var(--ochatting-control) * 0.46);
+  }
+
+  .ochatting-stop-btn svg {
+    width: calc(var(--ochatting-control) * 0.4);
+    height: calc(var(--ochatting-control) * 0.4);
+  }
+
   .ochatting-attach-btn:hover {
-    background: var(--background-modifier-hover);
+    background: var(--background-modifier-active-hover);
     color: var(--text-normal);
   }
 
@@ -1003,16 +1066,26 @@
     flex: 1;
     resize: none;
     border: 1.5px solid var(--background-modifier-border-hover, var(--background-modifier-border));
-    border-radius: 20px;
-    padding: 8px 16px;
+    box-sizing: border-box;
+    border-radius: calc(var(--ochatting-control) / 2);
+    /* One line is exactly the control height: (height - line height - borders) / 2 */
+    padding: calc((var(--ochatting-control) - 1.4em - 3px) / 2) 16px;
+    min-height: var(--ochatting-control);
     font-size: var(--font-ui-medium);
     font-family: var(--font-interface);
     background-color: var(--background-secondary);
     color: var(--text-normal);
     line-height: 1.4;
     max-height: 300px;
-    overflow-y: auto;
+    /* The height autoGrow() sets leaves out the borders, so the text
+       overflowed it by 3px and showed an empty scrollbar track: a scrollbar
+       only beyond the maximum height (autoGrow() turns it on). */
+    overflow-y: hidden;
     box-shadow: none;
+  }
+
+  .ochatting-input-scrollable {
+    overflow-y: auto;
   }
 
   .ochatting-input:focus {
@@ -1026,10 +1099,10 @@
   }
 
   .ochatting-send-btn {
-    width: 34px;
-    height: 34px;
-    min-width: 34px;
-    min-height: 34px;
+    width: var(--ochatting-control);
+    height: var(--ochatting-control);
+    min-width: var(--ochatting-control);
+    min-height: var(--ochatting-control);
     padding: 0;
     border: none;
     border-radius: 50%;
@@ -1124,22 +1197,13 @@
     }
 
     .ochatting-input-bar {
+      --ochatting-control: 44px; /* touch size */
       gap: 10px;
       padding: 10px 12px;
-      padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
     }
 
     .ochatting-input {
       font-size: 16px; /* Prevents iOS zoom on focus */
-      padding: 10px 16px;
-      border-radius: 22px;
-    }
-
-    .ochatting-send-btn {
-      width: 36px;
-      height: 36px;
-      min-width: 36px;
-      min-height: 36px;
     }
   }
 </style>

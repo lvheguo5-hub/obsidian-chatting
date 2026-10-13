@@ -40,8 +40,9 @@ deletion, failed-write retries, and refusals outside the selection).
 `math-markdown.test.mjs`: math delimiters and table wiki links normalized
 for rendering, with code left untouched. `tool-label.test.mjs`: the one-line
 labels of tool steps per state, file names without `.md`, searches, renames
-and unknown tools. These tests do not establish live-service or physical-iOS
-behavior.
+and unknown tools. `phone-layout.test.mjs`: on a phone the chat lifts itself
+by the part of the view the keyboard covers. These tests do not establish
+live-service or physical-iOS behavior.
 
 Two Node scripts that exercise the ChatGPT/Codex Responses endpoint
 **without** going through Obsidian, so iteration on the

@@ -59,6 +59,8 @@ export const bundled = await build({
         if (!match) return none;
         return { exists: true, frontmatter: content.slice(open[0].length, match.index), from: open[0].length, to: match.index, contentStart: close.lastIndex };
       }
+      // A desktop unless a test sets globalThis.__isPhone.
+      export const Platform = { get isPhone() { return globalThis.__isPhone === true; } };
     `, loader: 'js' }));
   } }],
 });
