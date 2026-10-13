@@ -30,6 +30,7 @@ const VERBS: Record<string, [string, string]> = {
   read_web_page: ["Reading", "Read"],
   view_image: ["Looking at", "Looked at"],
   view_canvas: ["Looking at", "Looked at"],
+  use_skill: ["Using the skill", "Used the skill"],
 };
 
 /** A file path as a reader names it: the file name, without `.md`. */
@@ -82,6 +83,8 @@ function subject(name: string, input: Record<string, unknown>): string {
       return typeof input.folder === "string" && input.folder.trim() ? fileLabel(input.folder) : "the vault";
     case "read_web_page":
       return pageLabel(input.url);
+    case "use_skill":
+      return typeof input.name === "string" ? input.name.replace(/^\//, "") : "";
     default:
       return fileLabel(input.path);
   }

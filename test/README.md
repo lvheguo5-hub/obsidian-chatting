@@ -97,10 +97,14 @@ with headings, lists and tables, Excel sheets as CSV and PowerPoint in slide
 order; what a file becomes; each provider's form in a message and in a tool
 result such as `read_file` on a PDF, left out two turns later; attached
 files saved without their data, restored, and sent again on edit).
-`fold-turn.test.mjs`: which rows of a finished turn fold into one line above
-its answer (steps, a text that led into one, the changes row; not an
-ask_user question, the answer or a single step without changes). These tests
-do not establish live-service or physical-iOS behavior.
+`skills.test.mjs`: skills (finding them in the skills folder, the list in
+the system prompt before `AGENTS.md`, `use_skill`, `/name` in a message and
+the `/` list, and the *Skills* settings with folder, list and New skill in
+both settings paths). `fold-turn.test.mjs`: which rows of a finished turn
+fold into one line above its answer (steps, a text that led into one, the
+changes row; not an ask_user question, the answer or a single step without
+changes). These tests do not establish live-service or physical-iOS
+behavior.
 
 Two Node scripts that exercise the ChatGPT/Codex Responses endpoint
 **without** going through Obsidian, so iteration on the

@@ -2,7 +2,7 @@
 // to the chat; the input and the edit box of a sent message follow it.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { api, settings, vaultApp } from './harness.mjs';
+import { api, settings, vaultApp, settingsApp } from './harness.mjs';
 
 // A settings row that records its name and toggle.
 function row() {
@@ -28,7 +28,7 @@ test('Enter sends by default; turned off it stays off after a restart', async ()
 test('Settings: the row works in both settings paths and saves the toggle', async () => {
   const plugin = { settings: settings('openai'), saves: 0, async saveSettings() { plugin.saves++; } };
   plugin.settings.enterSends = true;
-  const tab = new api.ChatSettingTab({}, plugin);
+  const tab = new api.ChatSettingTab(settingsApp, plugin);
   // Obsidian 1.13+: a definition of its own.
   const r = row();
   tab.getSettingDefinitions().find(d => d.name === 'Enter sends message').render(r);
@@ -42,7 +42,7 @@ test('Settings: the row works in both settings paths and saves the toggle', asyn
   const drawn = [];
   const ignore = () => {};
   Object.assign(tab, { containerEl: { empty: ignore }, renderProvider: ignore, renderApiKeySection: ignore, renderModelSection: ignore,
-    renderWebSearch: ignore, renderFollowEdits: ignore, renderInstructions: ignore, renderMaxIterations: ignore, renderDebugLog: ignore, loadCatalog: async () => {}, renderEnterSends: setting => drawn.push(setting) });
+    renderWebSearch: ignore, renderFollowEdits: ignore, renderInstructions: ignore, renderSkills: ignore, renderMaxIterations: ignore, renderDebugLog: ignore, loadCatalog: async () => {}, renderEnterSends: setting => drawn.push(setting) });
   tab.display();
   assert.equal(drawn.length, 1);
 });

@@ -110,7 +110,6 @@ test('Settings: the row works in both settings paths; Copy and Clear', async () 
   plugin.saves = 0;
   plugin.saveSettings = async () => { plugin.saves++; };
   const tab = new api.ChatSettingTab(plugin.app, plugin);
-  tab.app = plugin.app; // Obsidian's PluginSettingTab sets it; the test stub doesn't.
   // Obsidian 1.13+: a definition of its own.
   const r = row();
   tab.getSettingDefinitions().find(d => d.name === 'Debug log').render(r);
@@ -132,7 +131,7 @@ test('Settings: the row works in both settings paths; Copy and Clear', async () 
   const drawn = [];
   const ignore = () => {};
   Object.assign(tab, { containerEl: { empty: ignore }, renderProvider: ignore, renderApiKeySection: ignore, renderModelSection: ignore,
-    renderWebSearch: ignore, renderEnterSends: ignore, renderFollowEdits: ignore, renderInstructions: ignore, renderMaxIterations: ignore, loadCatalog: async () => {}, renderDebugLog: setting => drawn.push(setting) });
+    renderWebSearch: ignore, renderEnterSends: ignore, renderFollowEdits: ignore, renderInstructions: ignore, renderSkills: ignore, renderMaxIterations: ignore, loadCatalog: async () => {}, renderDebugLog: setting => drawn.push(setting) });
   tab.display();
   assert.equal(drawn.length, 1);
 });

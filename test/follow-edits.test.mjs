@@ -5,7 +5,7 @@
 // shows a spot when the user asks.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { api, settings, vaultApp, transport, response, text, call } from './harness.mjs';
+import { api, settings, vaultApp, transport, response, text, call, settingsApp } from './harness.mjs';
 
 const { changedRange, visibleRange, showInView, viewportFor, closeFollowTab, closeLeftoverFollowTab } = api.showInView;
 
@@ -233,7 +233,7 @@ test('The setting: on by default, kept in data.json, in both settings paths; the
     return r;
   };
   const plugin = { settings: { ...settings('openai'), followEdits: true }, saves: 0, async saveSettings() { plugin.saves++; } };
-  const tab = new api.ChatSettingTab({}, plugin);
+  const tab = new api.ChatSettingTab(settingsApp, plugin);
   // Obsidian 1.13+: a definition of its own.
   const r = row();
   tab.getSettingDefinitions().find(d => d.name === "Follow the AI's edits").render(r);
@@ -245,7 +245,7 @@ test('The setting: on by default, kept in data.json, in both settings paths; the
   const drawn = [];
   const ignore = () => {};
   Object.assign(tab, { containerEl: { empty: ignore }, renderProvider: ignore, renderApiKeySection: ignore, renderModelSection: ignore,
-    renderWebSearch: ignore, renderEnterSends: ignore, renderInstructions: ignore, renderMaxIterations: ignore, renderDebugLog: ignore, loadCatalog: async () => {}, renderFollowEdits: setting => drawn.push(setting) });
+    renderWebSearch: ignore, renderEnterSends: ignore, renderInstructions: ignore, renderSkills: ignore, renderMaxIterations: ignore, renderDebugLog: ignore, loadCatalog: async () => {}, renderFollowEdits: setting => drawn.push(setting) });
   tab.display();
   assert.equal(drawn.length, 1);
 

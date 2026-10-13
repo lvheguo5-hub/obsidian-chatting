@@ -34,7 +34,7 @@ src/
     anthropic.ts         # Messages API, adaptive thinking, cache_control
     openai.ts            # Responses API, previous_response_id chaining
   tools/
-    registry.ts          # 21 tool definitions (JSON Schema)
+    registry.ts          # 22 tool definitions (JSON Schema)
     executor.ts          # Runs tools against Obsidian Vault APIs
     metadata-query.ts    # query_notes, list_metadata (metadata cache, no file read)
     links.ts             # get_links: linked and unlinked mentions, outgoing links
@@ -47,6 +47,7 @@ src/
     context.ts           # Builds vault context (active file, selection)
     system-prompt.ts     # Static system prompt (KV cache optimized)
     instructions.ts      # The vault's AGENTS.md files (root: system prompt; folders: tool results)
+    skills.ts            # Skills: the skills folder, the list in the system prompt, use_skill, /name
   ui/
     chat-view.ts         # ItemView wrapper, mounts Svelte component
     ChatContainer.svelte # All chat UI: messages, input, selection pill, chats list
@@ -67,7 +68,7 @@ src/
 
 ## Key Patterns
 
-- **KV cache optimization**: System prompt is static (never includes dynamic context). Only the vault's root `AGENTS.md` joins it (read each turn; it changes only when the user edits it, so the cache holds). Dynamic context (active file, selection) goes in the user message after the cached prefix.
+- **KV cache optimization**: System prompt is static (never includes dynamic context). Only the vault's root `AGENTS.md` and its skills list (names and descriptions) join it (read each turn; they change only when the user edits them, so the cache holds). Dynamic context (active file, selection) goes in the user message after the cached prefix.
 - **Vault instructions (`AGENTS.md`)**: The user's vault, not this repo. A folder's `AGENTS.md` is appended to the first tool result of the conversation that touches a file in that folder or below (outer folders first); the history is searched for it, so it comes once per conversation and again after a cut.
 - **Anthropic `cache_control`**: Breakpoints on system prompt and last tool definition.
 - **Thinking level from the model catalog**: The setting offers the levels the catalog lists for the selected model (Codex `supported_reasoning_levels`, Anthropic `/v1/models` `capabilities.effort`); Anthropic's thinking mode comes from `capabilities.thinking.types`. Without catalog data the previous rules apply: Anthropic thinking by model name, Codex `medium` for reasoning models, and OpenAI API-key requests `medium` for reasoning models (its model list has no levels).
@@ -84,6 +85,7 @@ src/
 - **Undo per answer**: The chat view passes a new `ChangeLog` (`src/tools/undo.ts`) per turn through `AgentCallbacks.changes` to `executeTool`. Edits record their text before and after in `withChange` (the same comparison that gives `focus`); `create_file` records the file and the folders `ensureParentFolder` made, `rename_file` the rename, `delete_file` the bytes of the file or folder before trashing it. A turn with changes ends in a `"changes"` entry in `chatHistory` (`turnId`, `files`, `undone`); its log lives only in memory, in `plugin.changeLogs`, a `WeakMap` keyed by that entry, so it belongs to that entry's conversation and goes away with it (clear, edit cut, delete). Undo takes the steps back last first; `conflicts()` names files that changed since, and `undo-confirm.ts` asks first. The model learns of an undo through the conversation's `notes` (saved with it): the next turn takes them into the context prefix of its user message, not the system prompt, and clears them. After a restart the row shows without undo ("kept").
 - **Folded steps**: when a turn ends, `ChatContainer.foldTurn` replaces its tool steps, a text that only led into a step and its changes row with one steps row right above the answer (`ui/fold-turn.ts` decides which rows, `foldPlan`); it opens into the steps and the changed files, and keeps undo. The chat view calls it at the end of a turn and for every finished turn in `renderHistory`. A single step without changes stays; an `ask_user` question stays visible. Nothing about it is saved.
 - **Files**: PDF, Word, Excel, PowerPoint and text files (attached with the paperclip or by pasting, up to 4 per message and 10 MB each; mentioned; or `read_file` on a PDF or Office file) become a `FileAttachment` (`src/files/attachments.ts`): a `file` content block in the user message, or `ToolResult.files` in a tool result. Each provider gets its own form: OpenAI and ChatGPT `input_file` with inline base64 data (PDF and Office), Anthropic a PDF `document` block and, for Word, Excel and PowerPoint, a text `document` with the text read when the file was attached (`src/files/office.ts`; the ZIP container is read with `DecompressionStream("deflate-raw")` in `src/files/zip.ts`, no library); text files go as text to all. Tool results with files are left out of requests after 2 user turns, like tool images. The saved `chatHistory` keeps each attached file's ID, name, type and size; data and text stay in the API history and come back by ID on load (`restoreImages`), so the `chat-state.json` format (version 3) is unchanged. The unpacked size of an Office file isn't limited (only the file's 10 MB); a crafted file can stall Obsidian while it is read (README, FAQ).
+- **Skills**: The user's vault, the Claude Code / Codex format: a folder per skill in the skills folder (setting `skillsFolder`, default `Skills`) with a `SKILL.md` whose properties give `name` (else the folder name) and `description` (`src/agent/skills.ts`). Each turn `AgentLoop.run` lists names and descriptions in the system prompt, after the built-in prompt and before `AGENTS.md`. `use_skill` returns a `SKILL.md` without its properties (32,768 characters) and lists the skill's other files, which the model reads with the vault tools. `/name` in a message (at its start or after a space) makes `chat-view.ts` send the skill loaded along with it, before the linked files; typing `/` offers the skills in the mention list. The *Skills* setting lists them (a `list` definition on Obsidian 1.13+, rows in `display()` before) and *New skill* creates one from `SKILL_TEMPLATE`.
 
 ## Build
 
@@ -120,6 +122,7 @@ npm run svelte-check   # Svelte check
 | read_web_page | `requestUrl()` + `htmlToMarkdown()` | http(s) only; article/main content, 40,000 characters per call; loaded from the user's device |
 | view_image | `vault.readBinary()` + `createImageBitmap()` | PNG, JPEG, GIF, WebP; over 2048 px or 5 MB scaled down (GIFs never re-encoded) |
 | view_canvas | `vault.cachedRead()` + Canvas 2D | PNG of the layout (at most 1600 px) and a legend of node tags; `focus` zooms to a group or node |
+| use_skill | `vault.getFolderByPath()` + `cachedRead()` | A skill's `SKILL.md` without its properties (32,768 characters) and its other files; from the skills folder |
 
 ## Debug
 

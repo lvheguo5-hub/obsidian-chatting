@@ -920,6 +920,7 @@ function normalizeSettings(value: unknown): Partial<ChatSettings> {
   if (typeof value.enterSends === "boolean") settings.enterSends = value.enterSends;
   if (typeof value.followEdits === "boolean") settings.followEdits = value.followEdits;
   if (typeof value.debugLog === "boolean") settings.debugLog = value.debugLog;
+  if (typeof value.skillsFolder === "string" && value.skillsFolder.trim()) settings.skillsFolder = value.skillsFolder.trim();
   settings.modelCatalog = normalizeCatalogState(value.modelCatalog);
   return settings;
 }

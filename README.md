@@ -22,7 +22,7 @@
 ## ✨ Why?
 
 - **Three providers, your choice** — Anthropic API, OpenAI API, or sign in with your ChatGPT account. No marketplace of half-broken providers.
-- **21 vault-native tools** — read, edit, search, create, rename, frontmatter, tags and properties, links, canvases, web pages, images. The agent goes from idea to changed files without leaving the chat.
+- **22 vault-native tools** — read, edit, search, create, rename, frontmatter, tags and properties, links, canvases, web pages, images, skills. The agent goes from idea to changed files without leaving the chat.
 - **Mobile-parity, by design** — no streaming, no Node-only modules, no localhost callbacks. iOS and Android behave the same as desktop.
 - **Selection scope** — highlight text in any note, send it to chat, the assistant edits only inside the selection.
 - **Secrets in the OS keychain** — never in `data.json`, never synced across devices.
@@ -89,7 +89,15 @@ Put standing instructions for the AI (writing style, where new notes go, how you
 
 This is your vault's `AGENTS.md`, not the one in this plugin's source code (that one is a guide for its developers). Up to 32,768 characters of each file are used.
 
-## 🛠️ 21 vault-native tools
+## 🧩 Skills
+
+Skills are instructions for particular tasks ("meeting notes from a transcript", "weekly review"): a folder each in your vault's `Skills` folder, with a `SKILL.md` note whose properties give the skill's `name` and `description` and whose text says how to do the task. Other files in the folder (templates, examples) belong to the skill; the AI reads them when the instructions call for them. It's the skills format of Claude Code and Codex, so a skill made for them works once its folder is copied into `Skills` (scripts in it don't run).
+
+Every chat knows the names and descriptions of your skills; when a task matches a description, the AI loads that skill and follows it. To pick one yourself, type `/` in the input and choose it: `/meeting-notes` sends the skill's instructions along with your message. Up to 32,768 characters of each `SKILL.md` are used.
+
+**Settings → Skills** sets the folder, lists your skills (each opens its `SKILL.md`) and starts a new one from a template with **New skill**. A skill without a description is listed, but the AI can't tell when to use it.
+
+## 🛠️ 22 vault-native tools
 
 | Group | Tools | What they do |
 |---|---|---|
@@ -100,6 +108,7 @@ This is your vault's `AGENTS.md`, not the one in this plugin's source code (that
 | **Canvas** | `read_canvas`, `edit_canvas` | Read a canvas as an outline of groups, cards and connections; add, change, move or remove cards and connections in one all-or-nothing step, with new cards placed so they don't overlap. `search_vault` also finds text on canvas cards and labels. |
 | **Web** | `read_web_page` | Read a web page (a link you give, or one web search found) as Markdown, without navigation and scripts; long pages in parts. |
 | **Images** | `view_image`, `view_canvas` | Look at an image in the vault (PNG, JPEG, GIF or WebP; large ones scaled down), or at a canvas as a picture of its layout with a legend of its cards, the whole canvas or zoomed to one group or card. |
+| **Skills** | `use_skill` | Load one of your [skills](#-skills): its instructions and the list of its other files. |
 
 ## ⚙️ Providers
 
@@ -130,6 +139,7 @@ Below **Model**, **Thinking level** offers *Default* plus the levels the model l
 - **Enter sends message** — on by default (Shift+Enter starts a new line). Turn it off to make Enter start a new line; then send with the send button or Ctrl+Enter (Cmd+Enter on a Mac). Editing a sent message follows the same keys.
 - **Follow the AI's edits** — on by default (see [Follow the AI's edits](#-follow-the-ais-edits)); the eye button in the chat header switches it too.
 - **Vault instructions** — opens the vault's `AGENTS.md`, or creates it (see [Your instructions in AGENTS.md](#-your-instructions-in-agentsmd)).
+- **Skills** — the folder with your skills (`Skills` by default), the skills in it and **New skill** (see [Skills](#-skills)).
 - **Debug log** — off by default. For troubleshooting it writes what is needed to follow a problem to `debug.log` in the plugin folder: your messages as sent (with their context), the model's answers and tool calls, tool results and errors (never keys). **Copy** (or the *Copy debug log* command) puts it on the clipboard; **Clear** deletes it.
 
 While an answer is being generated, the screen doesn't go to sleep (where the device allows it). Stopping before any of the answer is shown leaves a quiet *Stopped.* note in the chat.
@@ -206,7 +216,7 @@ ln -s "$(pwd)" /path/to/vault/.obsidian/plugins/chatting-with-ai
 ## 🗺️ Roadmap
 
 - [x] Three providers (Anthropic, OpenAI, ChatGPT account)
-- [x] 21 vault-native tools
+- [x] 22 vault-native tools
 - [x] iOS / Android parity
 - [x] Selection scope
 - [x] Official Obsidian Community Plugins listing
@@ -223,7 +233,7 @@ Have a request? Open an issue.
 <details>
 <summary><b>Will my notes be uploaded somewhere?</b></summary>
 
-Only what the agent needs for the current turn. When you ask a question, the agent decides which tools to call — `read_document`, `search_vault`, etc. — and the contents fetched by those calls (plus the active note context) are sent to your chosen provider. Images and files you attach are sent with that message and kept in the local chat history until you clear or delete the chat or the message is older than the part of the chat the plugin keeps for the provider; so are images the agent looks at (`view_image`, `view_canvas`) and files it reads (`read_file` on a PDF or Office file). Nothing is uploaded in the background. There is no vault index. Your vault's root `AGENTS.md`, if there is one, goes with every message; a folder's `AGENTS.md` goes with the first tool result in that folder. When the agent reads a web page (`read_web_page`), your device loads that address, as a browser would, and the page's text goes to your provider like a note's.
+Only what the agent needs for the current turn. When you ask a question, the agent decides which tools to call — `read_document`, `search_vault`, etc. — and the contents fetched by those calls (plus the active note context) are sent to your chosen provider. Images and files you attach are sent with that message and kept in the local chat history until you clear or delete the chat or the message is older than the part of the chat the plugin keeps for the provider; so are images the agent looks at (`view_image`, `view_canvas`) and files it reads (`read_file` on a PDF or Office file). So do the names and descriptions of your skills; a skill's `SKILL.md` goes when the AI uses the skill or you name it with `/`. Nothing is uploaded in the background. There is no vault index. Your vault's root `AGENTS.md`, if there is one, goes with every message; a folder's `AGENTS.md` goes with the first tool result in that folder. When the agent reads a web page (`read_web_page`), your device loads that address, as a browser would, and the page's text goes to your provider like a note's.
 
 </details>
 

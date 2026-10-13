@@ -1,8 +1,9 @@
 import type { UnifiedToolDef } from "../types";
 
 /**
- * All 9 tools the agent can call. Deliberately minimal:
- * read, edit, search, create, list, rename, delete, and ask-user.
+ * The tools the agent can call: notes, canvases, images, web pages, skills
+ * and ask_user. Each has a case in `executeTool` and a label in
+ * `ui/tool-label.ts`.
  */
 export const TOOL_DEFINITIONS: UnifiedToolDef[] = [
   {
@@ -438,6 +439,21 @@ export const TOOL_DEFINITIONS: UnifiedToolDef[] = [
         },
       },
       required: ["url"],
+    },
+  },
+  {
+    name: "use_skill",
+    description:
+      "Load a skill from the vault: its instructions and the list of its other files. Call it before a task that matches a skill listed in the system prompt, then follow the instructions.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: {
+          type: "string",
+          description: "The skill's name as listed.",
+        },
+      },
+      required: ["name"],
     },
   },
 ];

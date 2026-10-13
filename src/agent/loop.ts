@@ -17,6 +17,7 @@ import { TOOL_DEFINITIONS } from "../tools/registry";
 import { executeTool } from "../tools/executor";
 import { buildContext } from "./context";
 import { folderInstructions, instructionsGiven, rootInstructions, toolPaths } from "./instructions";
+import { findSkills, skillsPrompt } from "./skills";
 import { buildSystemPrompt, buildContextMessage } from "./system-prompt";
 import { trimHistory, cutBeforeTurn, editableTurn, newTurnId, MAX_CONVERSATION_LENGTH } from "./history";
 import { debugLog } from "../debug";
@@ -64,6 +65,8 @@ export class AgentLoop {
   private runVersion = 0;
   /** The vault root's AGENTS.md as the last turn read it (in the system prompt). */
   private vaultInstructions: string | null = null;
+  /** The skills part of the system prompt, read with the instructions. */
+  private skills: string | null = null;
 
   constructor(app: App, settings: ChatSettings) {
     this.app = app;
@@ -117,7 +120,7 @@ export class AgentLoop {
 
   /** Export the full conversation as a readable markdown transcript */
   exportTranscript(): string {
-    const systemPrompt = buildSystemPrompt(this.vaultInstructions);
+    const systemPrompt = buildSystemPrompt(this.vaultInstructions, this.skills);
 
     const parts: string[] = [
       `# Chatting with AI Transcript`,
@@ -247,10 +250,11 @@ export class AgentLoop {
     // Prune if conversation is too long
     this.pruneHistory();
 
-    // System prompt is static (cache-friendly): the built-in one and the
-    // vault's AGENTS.md, which rarely changes. Read once per turn.
+    // System prompt is static (cache-friendly): the built-in one, the
+    // vault's skills and its AGENTS.md, which rarely change. Read once per turn.
     this.vaultInstructions = await rootInstructions(this.app);
-    const systemPrompt = buildSystemPrompt(this.vaultInstructions);
+    this.skills = skillsPrompt(findSkills(this.app, turnSettings.skillsFolder));
+    const systemPrompt = buildSystemPrompt(this.vaultInstructions, this.skills);
 
     debugLog(this.app, "USER_MESSAGE", {
       userMessage,
@@ -361,7 +365,8 @@ export class AgentLoop {
           tc.input!,
           callbacks.onAskUser,
           scope,
-          callbacks.changes
+          callbacks.changes,
+          turnSettings.skillsFolder
         );
         debugLog(this.app, "TOOL_CALL", { name: tc.name, input: tc.input, result: result.result, isError: result.isError });
 

@@ -22,6 +22,8 @@ export interface ChatSettings {
   followEdits: boolean;
   /** Write `debug.log` in the plugin folder (troubleshooting; logs messages, never keys). */
   debugLog: boolean;
+  /** The vault folder with the skills, a subfolder with a SKILL.md each (`agent/skills.ts`). */
+  skillsFolder: string;
   modelCatalog?: import("./api/model-catalog").CatalogState;
 }
 
@@ -50,6 +52,7 @@ export const DEFAULT_SETTINGS: ChatSettings = {
   enterSends: true,
   followEdits: true,
   debugLog: false,
+  skillsFolder: "Skills",
 };
 
 // ─── Unified Message Format ─────────────────────────────────────────────────

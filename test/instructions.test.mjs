@@ -95,7 +95,6 @@ test('Settings: Vault instructions creates AGENTS.md with a short comment, then 
   app.workspace.getLeaf = () => ({ openFile: async file => { opened.push(file.path); } });
   const plugin = { settings: settings('anthropic') };
   const tab = new api.ChatSettingTab(app, plugin);
-  tab.app = app; // Obsidian's PluginSettingTab sets it; the test stub doesn't.
   let redraws = 0;
   tab.update = tab.display = () => { redraws++; };
 
@@ -122,7 +121,7 @@ test('Settings: Vault instructions creates AGENTS.md with a short comment, then 
   const ignore = () => {};
   delete tab.display;
   Object.assign(tab, { containerEl: { empty: ignore }, renderProvider: ignore, renderApiKeySection: ignore, renderModelSection: ignore,
-    renderWebSearch: ignore, renderEnterSends: ignore, renderFollowEdits: ignore, renderMaxIterations: ignore, renderDebugLog: ignore, loadCatalog: async () => {}, renderInstructions: setting => drawn.push(setting) });
+    renderWebSearch: ignore, renderEnterSends: ignore, renderFollowEdits: ignore, renderSkills: ignore, renderMaxIterations: ignore, renderDebugLog: ignore, loadCatalog: async () => {}, renderInstructions: setting => drawn.push(setting) });
   tab.display();
   assert.equal(drawn.length, 1);
 });

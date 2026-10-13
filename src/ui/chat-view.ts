@@ -10,6 +10,7 @@ import { ChangeLog } from "../tools/undo";
 import { screenAwake } from "../platform/screen-awake";
 import { newTurnId } from "../agent/history";
 import { mentionContext, mentionedFiles } from "./mentions";
+import { findSkills, invokedSkillsText, type Skill } from "../agent/skills";
 
 export const VIEW_TYPE_CHAT = "ochatting-view";
 
@@ -64,6 +65,7 @@ interface ChatContainerProps {
   onDeleteConversation: (id: string) => void;
   onToggleFollow: () => void;
   onUndo: (turnId: string) => void;
+  listSkills: () => Skill[];
 }
 
 interface ChatContainerApi extends Record<string, unknown> {
@@ -214,6 +216,7 @@ export class ObsidianChatView extends ItemView {
         onDeleteConversation: (id: string) => this.deleteConversation(id),
         onToggleFollow: () => void this.toggleFollow(),
         onUndo: (turnId: string) => void this.undoChanges(turnId),
+        listSkills: () => findSkills(this.plugin.app, this.plugin.settings.skillsFolder),
       },
     });
 
@@ -446,7 +449,12 @@ export class ObsidianChatView extends ItemView {
       // shows only the typed text.
       const app = this.plugin.app;
       const source = app.workspace.getActiveFile()?.path ?? "";
-      const mentioned = await mentionContext(app, mentionedFiles(app, text, source));
+      const linked = await mentionContext(app, mentionedFiles(app, text, source));
+      // Skills named as /name go along loaded, before the linked files.
+      const skills = await invokedSkillsText(app, this.plugin.settings.skillsFolder, text);
+      const mentioned = skills
+        ? { text: linked ? `${skills}\n\n${linked.text}` : skills, images: linked?.images ?? [], files: linked?.files ?? [] }
+        : linked;
       await this.plugin.agent.run(text, {
         changes,
         onThinking: () => {

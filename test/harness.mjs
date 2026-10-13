@@ -40,6 +40,8 @@ export const bundled = await build({
     export { UndoConfirmModal } from './src/ui/undo-confirm';
     export { foldPlan } from './src/ui/fold-turn';
     export * as files from './src/files/attachments';
+    export * as skills from './src/agent/skills';
+    export { buildSystemPrompt } from './src/agent/system-prompt';
   `, resolveDir: process.cwd(), loader: 'ts' },
   bundle: true, write: false, platform: 'node', format: 'esm',
   plugins: [{ name: 'obsidian-test-transport', setup(build) {
@@ -55,13 +57,13 @@ export const bundled = await build({
       export class Menu {}
       export const MarkdownRenderer = { render: async () => {} };
       export class Modal {}
-      export class PluginSettingTab { containerEl = { addClass() {} }; hide() {} }
+      export class PluginSettingTab { constructor(app) { this.app = app; } containerEl = { addClass() {} }; hide() {} }
       export class Setting {}
       export const requireApiVersion = () => globalThis.__supportsNewObsidian === true;
       export class Notice { constructor(message) { (globalThis.__notices ??= []).push(message); } }
       export class TAbstractFile {}
       export class TFile { constructor(path) { this.path = path; this.extension = 'md'; } }
-      export class TFolder extends TAbstractFile { constructor(path, children = []) { super(); this.path = path; this.children = children; } }
+      export class TFolder extends TAbstractFile { constructor(path, children = []) { super(); this.path = path; this.name = path.split('/').pop(); this.children = children; } }
       export const normalizePath = path => path;
       // As Obsidian: body tags, then the frontmatter's tags (a list or a comma/space separated text), each with '#'.
       export const getAllTags = cache => {
@@ -156,3 +158,6 @@ export function callbacks(extra = {}) {
   const errors = [], texts = [], executed = [];
   return { errors, texts, executed, onThinking() {}, onToolCall(name) { executed.push(name); }, onToolResult() {}, onResponse(value) { texts.push(value); }, onAskUser: async () => 'yes', onError(error) { errors.push(error); }, ...extra };
 }
+
+/** An app for the settings tab: a vault without files (no skills, no AGENTS.md). */
+export const settingsApp = { vault: { getFolderByPath: () => null, getFileByPath: () => null } };

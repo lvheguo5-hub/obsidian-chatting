@@ -38,6 +38,7 @@ test('Every vault tool has its own label', () => {
     'read_canvas', 'edit_canvas',
     'read_web_page',
     'view_image', 'view_canvas',
+    'use_skill',
   ];
   for (const name of tools) {
     assert.notEqual(toolLabel(name, {}), name.replace(/_/g, ' '), name);
