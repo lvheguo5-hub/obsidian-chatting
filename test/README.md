@@ -38,8 +38,10 @@ network errors, and the login dialog ignoring background clicks).
 selected copy of repeated text, snapshot relocation, CRLF notes, safe
 deletion, failed-write retries, and refusals outside the selection).
 `math-markdown.test.mjs`: math delimiters and table wiki links normalized
-for rendering, with code left untouched. These tests do not establish
-live-service or physical-iOS behavior.
+for rendering, with code left untouched. `tool-label.test.mjs`: the one-line
+labels of tool steps per state, file names without `.md`, searches, renames
+and unknown tools. These tests do not establish live-service or physical-iOS
+behavior.
 
 Two Node scripts that exercise the ChatGPT/Codex Responses endpoint
 **without** going through Obsidian, so iteration on the
