@@ -1,5 +1,7 @@
 import { App, TFile, getFrontMatterInfo, normalizePath } from "obsidian";
 import type { SelectionScope, ToolResult } from "../types";
+import { listMetadata, queryNotes } from "./metadata-query";
+import { getLinks } from "./links";
 
 /** Images the read tools refuse (SVG is text, so they read it). */
 const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "tif", "tiff", "heic", "heif", "avif", "ico"];
@@ -61,8 +63,13 @@ export async function executeTool(
         return await getProperties(app, input);
       case "set_properties":
         return await setProperties(app, input);
-      case "get_backlinks":
-        return await getBacklinks(app, input);
+      case "query_notes":
+        return queryNotes(app, input);
+      case "list_metadata":
+        return listMetadata(app, input);
+      case "get_links":
+      case "get_backlinks": // its earlier name, in saved chats
+        return await getNoteLinks(app, input);
       case "get_current_datetime":
         return getCurrentDatetime();
       case "open_document":
@@ -592,7 +599,7 @@ async function setProperties(
   return { result: `Updated properties in ${file.path}. ${parts.join(". ")}.`, isError: false };
 }
 
-async function getBacklinks(
+async function getNoteLinks(
   app: App,
   input: Record<string, unknown>
 ): Promise<ToolResult> {
@@ -601,26 +608,7 @@ async function getBacklinks(
   if (!file) {
     return { result: path ? `File not found: ${path}` : "No active document open.", isError: true };
   }
-
-  // resolvedLinks maps: source path -> { target path -> link count }
-  const allLinks = app.metadataCache.resolvedLinks;
-  const backlinks: string[] = [];
-
-  for (const [sourcePath, targets] of Object.entries(allLinks)) {
-    if (targets[file.path]) {
-      backlinks.push(sourcePath);
-    }
-  }
-
-  if (backlinks.length === 0) {
-    return { result: `No backlinks found for ${file.path}.`, isError: false };
-  }
-
-  backlinks.sort();
-  return {
-    result: `${backlinks.length} note(s) link to ${file.path}:\n${backlinks.map((p) => `- ${p}`).join("\n")}`,
-    isError: false,
-  };
+  return getLinks(app, file);
 }
 
 function getCurrentDatetime(): ToolResult {

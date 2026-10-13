@@ -15,13 +15,16 @@ const VERBS: Record<string, [string, string]> = {
   open_document: ["Opening", "Opened"],
   get_properties: ["Reading the properties of", "Read the properties of"],
   set_properties: ["Updating the properties of", "Updated the properties of"],
-  get_backlinks: ["Finding links to", "Found links to"],
+  get_links: ["Finding links of", "Found links of"],
+  get_backlinks: ["Finding links of", "Found links of"],
   search_vault: ["Searching for", "Searched for"],
   list_files: ["Listing", "Listed"],
   rename_file: ["Renaming", "Renamed"],
   delete_file: ["Moving to the trash:", "Moved to the trash:"],
   get_current_datetime: ["Checking", "Checked"],
   ask_user: ["Asking a question", "Asked a question"],
+  query_notes: ["Finding notes", "Found notes"],
+  list_metadata: ["Listing the tags and properties of", "Listed the tags and properties of"],
 };
 
 /** A file path as a reader names it: the file name, without `.md`. */
@@ -29,6 +32,18 @@ export function fileLabel(path: unknown): string {
   if (typeof path !== "string" || !path.trim()) return "the current note";
   const name = path.replace(/\/+$/, "").split("/").pop() ?? path;
   return name.replace(/\.md$/i, "");
+}
+
+/** query_notes' filters in words: "tagged #project, status active in Work". */
+function noteFilter(input: Record<string, unknown>): string {
+  const tags = Array.isArray(input.tags) ? input.tags.filter((tag): tag is string => typeof tag === "string") : [];
+  const properties = input.properties && typeof input.properties === "object" ? Object.entries(input.properties) : [];
+  const parts = [
+    ...(tags.length ? [`tagged ${tags.map((tag) => (tag.startsWith("#") ? tag : `#${tag}`)).join(input.match === "any" ? " or " : " ")}`] : []),
+    ...properties.map(([key, value]) => (value === null ? `with ${key}` : `${key} ${typeof value === "string" ? value : JSON.stringify(value)}`)),
+  ];
+  const folder = typeof input.folder === "string" && input.folder.trim() ? ` in ${fileLabel(input.folder)}` : "";
+  return `${parts.join(", ")}${folder}`;
 }
 
 /** What the tool works on, as the label names it ("" when the verb says it all). */
@@ -44,6 +59,10 @@ function subject(name: string, input: Record<string, unknown>): string {
       return "the date";
     case "ask_user":
       return "";
+    case "query_notes":
+      return noteFilter(input);
+    case "list_metadata":
+      return typeof input.folder === "string" && input.folder.trim() ? fileLabel(input.folder) : "the vault";
     default:
       return fileLabel(input.path);
   }

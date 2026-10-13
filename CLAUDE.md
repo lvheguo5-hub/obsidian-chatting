@@ -30,8 +30,10 @@ src/
     anthropic.ts         # Messages API, adaptive thinking, cache_control
     openai.ts            # Responses API, previous_response_id chaining
   tools/
-    registry.ts          # 9 tool definitions (JSON Schema)
+    registry.ts          # 16 tool definitions (JSON Schema)
     executor.ts          # Runs tools against Obsidian Vault APIs
+    metadata-query.ts    # query_notes, list_metadata (metadata cache, no file read)
+    links.ts             # get_links: linked and unlinked mentions, outgoing links
   agent/
     loop.ts              # Core agentic loop with selection scope
     context.ts           # Builds vault context (active file, selection)
@@ -78,9 +80,11 @@ npm run svelte-check   # Svelte check
 | open_document | `workspace.getLeaf().openFile()` | Opens file in editor |
 | get_properties | `metadataCache.getFileCache()` | Reads YAML frontmatter |
 | set_properties | `fileManager.processFrontMatter()` | Safe YAML merge/remove |
-| get_backlinks | `metadataCache.resolvedLinks` | Finds linking notes |
+| get_links | `metadataCache.resolvedLinks` / `unresolvedLinks` + `cachedRead()` | Linked and unlinked mentions, outgoing links; the old name `get_backlinks` still runs |
 | get_current_datetime | `Date` | User's locale and timezone |
 | ask_user | UI callback | Pauses agent loop |
+| query_notes | `metadataCache.getFileCache()` + `getAllTags()` | Tags (nested too), properties, folder; sorted; capped at 200 |
+| list_metadata | `metadataCache.getFileCache()` + `getAllTags()` | Tags and properties with counts |
 
 ## Debug
 

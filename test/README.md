@@ -46,8 +46,13 @@ view the keyboard covers. `thinking-level.test.mjs`: the thinking level
 setting (levels from the model catalog, Default, a level the model doesn't
 offer, the chat header, the connection Test at the lightest level) and the
 thinking parameters each provider sends, with the previous rules for models
-the catalog has no data on. These tests do not establish live-service or
-physical-iOS behavior.
+the catalog has no data on. `metadata-query.test.mjs`: `query_notes` (tags
+with nested ones, all or any; property values, list items, links, set;
+folder; sorting; limit) and `list_metadata` with their labels.
+`links.test.mjs`: `get_links` (linked mentions with their lines, unlinked
+mentions by name or alias outside links and properties, outgoing links
+including unresolved ones) and the old name `get_backlinks`. These tests do
+not establish live-service or physical-iOS behavior.
 
 Two Node scripts that exercise the ChatGPT/Codex Responses endpoint
 **without** going through Obsidian, so iteration on the
