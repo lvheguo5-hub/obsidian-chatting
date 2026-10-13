@@ -66,6 +66,8 @@ export function buildContextMessage(context: ConversationContext): string {
     parts.push(`Selected text: "${truncated}${context.selection.length > 200 ? "..." : ""}".`);
   }
 
+  for (const note of context.notes ?? []) parts.push(note);
+
   parts.push("]");
 
   return parts.join(" ");

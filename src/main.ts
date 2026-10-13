@@ -15,6 +15,7 @@ import { ChatSettingTab, getModelHeaderLabel } from "./settings";
 import { ObsidianChatView, VIEW_TYPE_CHAT } from "./ui/chat-view";
 import { closeFollowTab, closeLeftoverFollowTab } from "./ui/show-in-view";
 import { AgentLoop } from "./agent/loop";
+import type { ChangeLog } from "./tools/undo";
 import {
   CHAT_STATE_VERSION,
   conversationTitle,
@@ -64,6 +65,12 @@ export default class ChatPlugin extends Plugin {
    */
   conversations: ConversationRecord[] = [newConversation()];
   activeConversationId = this.conversations[0].id;
+  /**
+   * The vault changes of each answer, for undo, by the answer's changes
+   * entry in its conversation's history. In memory only (until Obsidian
+   * closes); dropped with the entry (clear, edit, delete).
+   */
+  readonly changeLogs = new WeakMap<ChatHistoryEntry, ChangeLog>();
   /** Set once the saved chat has been read; saves before that would overwrite it. */
   private chatHistoryLoaded = false;
   /** The chat-state write in progress, and the one queued after it. */

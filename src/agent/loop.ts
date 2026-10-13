@@ -176,6 +176,8 @@ export class AgentLoop {
   /**
    * Run one user turn through the agentic loop; `turnId` marks where it
    * starts. `mentioned`: the files the message links to, sent before it.
+   * `notes`: what the user did since the last turn (e.g. undid an answer's
+   * changes), for the model.
    */
   async run(
     userMessage: string,
@@ -183,7 +185,8 @@ export class AgentLoop {
     selection?: SelectionScope | null,
     images: ImageAttachment[] = [],
     turnId: string = newTurnId(),
-    mentioned: MentionContext | null = null
+    mentioned: MentionContext | null = null,
+    notes: string[] = []
   ): Promise<void> {
     const version = ++this.runVersion;
     const isStopped = () => version !== this.runVersion;
@@ -195,7 +198,7 @@ export class AgentLoop {
 
     // Build context once per user turn and prepend to the user message;
     // the files the message links to come next, the message itself last.
-    const context = buildContext(this.app);
+    const context = { ...buildContext(this.app), ...(notes.length ? { notes } : {}) };
     const contextPrefix = mentioned ? `${buildContextMessage(context)}\n\n${mentioned.text}` : buildContextMessage(context);
     images = [...images, ...mentioned?.images ?? []];
 
@@ -339,7 +342,8 @@ export class AgentLoop {
           tc.name!,
           tc.input!,
           callbacks.onAskUser,
-          scope
+          scope,
+          callbacks.changes
         );
         debugLog(this.app, "TOOL_CALL", { name: tc.name, input: tc.input, result: result.result, isError: result.isError });
 

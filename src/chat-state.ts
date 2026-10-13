@@ -30,6 +30,8 @@ export interface ConversationRecord {
   chatHistory: ChatHistoryEntry[];
   /** API history; the only place with image data. */
   agentMessages: UnifiedMessage[];
+  /** For the model with the next turn: what the user did meanwhile (e.g. undid an answer's changes). */
+  notes?: string[];
 }
 
 /** `chat-state.json` as this version writes it. */
@@ -85,6 +87,7 @@ export function migrateChatState(value: unknown): Pick<ChatState, "activeConvers
     .map((item): ConversationRecord => {
       const chatHistory = arrayOf<ChatHistoryEntry>(item.chatHistory);
       const customTitle = item.customTitle === true && typeof item.title === "string";
+      const notes = arrayOf<unknown>(item.notes).filter((note): note is string => typeof note === "string");
       return {
         id: item.id as string,
         title: customTitle ? item.title as string : conversationTitle(chatHistory),
@@ -93,6 +96,7 @@ export function migrateChatState(value: unknown): Pick<ChatState, "activeConvers
         updatedAt: typeof item.updatedAt === "number" ? item.updatedAt : 0,
         chatHistory,
         agentMessages: arrayOf<UnifiedMessage>(item.agentMessages),
+        ...(notes.length ? { notes } : {}),
       };
     });
   if (conversations.length === 0) conversations.push(newConversation());

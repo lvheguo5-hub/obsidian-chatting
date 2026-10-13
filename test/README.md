@@ -88,7 +88,11 @@ start, the setting in both settings paths) and `open_document` with a text
 or a card. `mentions.test.mjs`: the mention at the caret (`@`, `[[`), the
 files offered and the link put in, and what a sent message's linked files
 add before it (notes capped, canvas outline, images, other files by name).
-These tests do not establish live-service or physical-iOS behavior.
+`undo.test.mjs`: undo per answer (edits, new files and folders, renames and
+deletes taken back last first, files changed since named and asked about,
+the changes row and its state after a restart, undo kept within its
+conversation, and the note for the model with the next turn only). These
+tests do not establish live-service or physical-iOS behavior.
 
 Two Node scripts that exercise the ChatGPT/Codex Responses endpoint
 **without** going through Obsidian, so iteration on the

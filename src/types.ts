@@ -1,3 +1,5 @@
+import type { ChangeLog } from "./tools/undo";
+
 // ─── Settings ───────────────────────────────────────────────────────────────
 
 export type Provider = "anthropic" | "openai" | "chatgpt-oauth";
@@ -121,6 +123,8 @@ export interface ConversationContext {
   selection: string | null;
   vaultName: string;
   fileCount: number;
+  /** What the user did since the last turn that the model should know (e.g. undid an answer's changes). */
+  notes?: string[];
 }
 
 /** The files a message links to, for the model (`ui/mentions.ts`): their text, and images as images. */
@@ -148,10 +152,13 @@ export interface SelectionScope {
 
 /** One entry of the visible chat history (`plugin.chatHistory`). */
 export interface ChatHistoryEntry {
-  type: "user" | "assistant" | "tool-result" | "error";
+  type: "user" | "assistant" | "tool-result" | "error" | "changes";
   text?: string;
   images?: ImageAttachment[];
-  /** User entries of a turn (not `ask_user` answers): the turn's ID, shared with the agent history. */
+  /**
+   * User entries of a turn (not `ask_user` answers): the turn's ID, shared
+   * with the agent history; changes entries: the turn that made them.
+   */
   turnId?: string;
   /** User entries: the selection scope the turn ran with. */
   selection?: SelectionScope;
@@ -160,6 +167,10 @@ export interface ChatHistoryEntry {
   toolResult?: { result: string; isError: boolean };
   /** Error entries: "stopped" is the quiet note left by Stop before any answer was shown. */
   errorKind?: "stopped";
+  /** Changes entries (at the end of a turn): the files the turn changed. */
+  files?: string[];
+  /** Changes entries: the user undid them. */
+  undone?: boolean;
 }
 
 /** A row of the chat view's history list. */
@@ -205,4 +216,6 @@ export interface AgentCallbacks {
   onResponse: (text: string) => void;
   onAskUser: (question: string) => Promise<string>;
   onError: (error: string) => void;
+  /** Where the turn's tools record their vault changes (undo per answer). */
+  changes?: ChangeLog;
 }

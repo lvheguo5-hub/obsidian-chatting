@@ -192,7 +192,7 @@ function chatView(followEdits) {
   let nextId = 0;
   view.chatContainer = {
     addUserMessage() {}, addAssistantMessage() {}, addError() {}, showThinking() {}, hideThinking() {},
-    addToolCall: () => nextId++, updateToolResult() {}, setInputEnabled() {}, setBusy() {}, focus() {}, setTitle() {},
+    addToolCall: () => nextId++, updateToolResult() {}, setInputEnabled() {}, setBusy() {}, focus() {}, setTitle() {}, addChanges() {},
   };
   return { app, files, plugin, view };
 }

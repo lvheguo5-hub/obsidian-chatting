@@ -35,6 +35,9 @@ export const bundled = await build({
     export * as instructions from './src/agent/instructions';
     export * as showInView from './src/ui/show-in-view';
     export * as mentions from './src/ui/mentions';
+    export { TFile, TFolder } from 'obsidian';
+    export { ChangeLog } from './src/tools/undo';
+    export { UndoConfirmModal } from './src/ui/undo-confirm';
   `, resolveDir: process.cwd(), loader: 'ts' },
   bundle: true, write: false, platform: 'node', format: 'esm',
   plugins: [{ name: 'obsidian-test-transport', setup(build) {
@@ -56,6 +59,7 @@ export const bundled = await build({
       export class Notice { constructor(message) { (globalThis.__notices ??= []).push(message); } }
       export class TAbstractFile {}
       export class TFile { constructor(path) { this.path = path; this.extension = 'md'; } }
+      export class TFolder extends TAbstractFile { constructor(path, children = []) { super(); this.path = path; this.children = children; } }
       export const normalizePath = path => path;
       // As Obsidian: body tags, then the frontmatter's tags (a list or a comma/space separated text), each with '#'.
       export const getAllTags = cache => {

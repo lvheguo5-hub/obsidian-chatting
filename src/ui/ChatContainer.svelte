@@ -5,8 +5,9 @@
   import type { ToolResult, SelectionScope, ImageAttachment, ConversationSummary } from "../types";
   import { insertMention, mentionAt, mentionCandidates, type MentionQuery } from "./mentions";
   import { normalizeMathMarkdown } from "./math-markdown";
-  import { toolLabel } from "./tool-label";
   import { isSendKey } from "./send-key";
+  import { fileLabel, toolLabel } from "./tool-label";
+  import type { ChangesState } from "./chat-view";
 
   const MAX_IMAGE_COUNT = 4;
   const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -20,16 +21,21 @@
 
   interface ChatMessage {
     id: number;
-    type: "user" | "assistant" | "tool-call" | "tool-result" | "error" | "thinking";
+    type: "user" | "assistant" | "tool-call" | "tool-result" | "error" | "thinking" | "changes";
     text?: string;
     images?: ImageAttachment[];
     toolName?: string;
     toolInput?: Record<string, unknown>;
     toolResult?: ToolResult;
-    /** User messages of a turn (not `ask_user` answers): editable. */
+    /** User messages of a turn (not `ask_user` answers): editable. Changes rows: their turn. */
     turnId?: string;
     selection?: SelectionScope;
     errorKind?: "stopped";
+    /** Changes rows: the files a turn changed, and whether it can be undone. */
+    files?: string[];
+    changesState?: ChangesState;
+    /** Changes rows: opened into the list of files. */
+    changesOpen?: boolean;
   }
 
   interface Props {
@@ -52,12 +58,14 @@
     onDeleteConversation: (id: string) => void;
     /** The eye button: follow the AI's edits on or off. */
     onToggleFollow: () => void;
+    /** Undo the vault changes of turn `turnId`. */
+    onUndo: (turnId: string) => void;
   }
 
   let {
     app, component, provider, model, onSend, onClear, onStop, onEdit, onRegenerate, onCopy,
     title, onNewChat, listConversations, onOpenConversation, onRenameConversation, onDeleteConversation,
-    onToggleFollow,
+    onToggleFollow, onUndo,
   }: Props = $props();
 
   let displayModel = $state("");
@@ -327,6 +335,37 @@
 
   export function addError(text: string, errorKind?: "stopped"): void {
     messages.push({ id: nextId++, type: "error", text, errorKind });
+  }
+
+  /**
+   * The row of files a turn changed: right after the turn's last tool step,
+   * before the answer that reports the change (at the end without one).
+   */
+  export function addChanges(turnId: string, files: string[], state: ChangesState): void {
+    const row: ChatMessage = { id: nextId++, type: "changes", turnId, files, changesState: state };
+    const start = messages.findIndex((m) => m.type === "user" && m.turnId === turnId);
+    const later = messages.findIndex((m, i) => i > start && m.type === "user" && !!m.turnId && m.turnId !== turnId);
+    const end = later === -1 ? messages.length : later;
+    let at = end;
+    for (let i = end - 1; i > start; i--) {
+      // A step is a tool-call while it runs and a tool-result once done.
+      if (messages[i].type === "tool-call" || messages[i].type === "tool-result") {
+        at = i + 1;
+        break;
+      }
+    }
+    messages.splice(at, 0, row);
+  }
+
+  export function setChangesUndone(turnId: string): void {
+    const row = messages.find((m) => m.type === "changes" && m.turnId === turnId);
+    if (row) row.changesState = "undone";
+  }
+
+  /** Open a changed file (one that no longer exists is left alone). */
+  function openChanged(path: string): void {
+    const file = app.vault.getFileByPath(path);
+    if (file) void app.workspace.getLeaf(false).openFile(file);
   }
 
   export function showAskUser(question: string): Promise<string> {
@@ -996,6 +1035,38 @@
       {:else if msg.type === "error" && msg.errorKind === "stopped"}
         <!-- Stopped before any of the answer arrived: a quiet note, not an error -->
         <div class="ochatting-stopped-note">{msg.text}</div>
+
+      {:else if msg.type === "changes"}
+        {@const files = msg.files ?? []}
+        {@const verb = msg.changesState === "undone" ? "Undid the changes to" : "Changed"}
+        <!-- What the answer changed, with undo (while Obsidian runs); open: the files as a list -->
+        <details class="ochatting-changes" class:is-undone={msg.changesState === "undone"} bind:open={msg.changesOpen}>
+          <summary class="ochatting-changes-row">
+            <svg class="ochatting-tool-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"></path><path d="M14 2v6h6"></path></svg>
+            <span class="ochatting-changes-label" title={files.join("\n")}>
+              {msg.changesOpen ? `${verb} ${files.length === 1 ? "1 file" : `${files.length} files`}` : `${verb} ${files.map(fileLabel).join(", ")}`}
+            </span>
+            <span class="ochatting-tool-chevron" aria-hidden="true"></span>
+            {#if msg.changesState === "undoable" && msg.turnId}
+              {@const turnId = msg.turnId}
+              <button
+                class="ochatting-action-btn ochatting-changes-undo"
+                type="button"
+                disabled={busy}
+                onclick={(e) => { e.preventDefault(); e.stopPropagation(); onUndo(turnId); }}
+                aria-label="Undo these changes"
+                title="Undo: put these files back as they were before this answer"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"></path><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"></path></svg>
+              </button>
+            {/if}
+          </summary>
+          <ul class="ochatting-changes-list">
+            {#each files as path (path)}
+              <li><button type="button" class="ochatting-changes-file" onclick={() => openChanged(path)} title={path}>{path}</button></li>
+            {/each}
+          </ul>
+        </details>
 
       {:else if msg.type === "error"}
         <div class="ochatting-msg ochatting-error-msg">
@@ -1737,6 +1808,86 @@
     overflow: auto;
     white-space: pre-wrap;
     word-break: break-all;
+  }
+
+  /* ─── Changes of an answer (undo) ───────────────────────────────────── */
+  .ochatting-changes {
+    align-self: stretch;
+    min-width: 0;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-s);
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+  }
+
+  .ochatting-changes-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    padding: 2px 2px 2px 6px;
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .ochatting-changes-row::-webkit-details-marker {
+    display: none;
+  }
+
+  .ochatting-changes-row:hover .ochatting-tool-chevron,
+  .ochatting-changes[open] .ochatting-tool-chevron {
+    opacity: 0.7;
+  }
+
+  .ochatting-changes[open] .ochatting-tool-chevron {
+    transform: rotate(45deg);
+  }
+
+  .ochatting-changes-label {
+    flex: 0 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .ochatting-changes.is-undone .ochatting-changes-label {
+    color: var(--text-faint);
+  }
+
+  /* Undo stays at the row's right end */
+  .ochatting-changes-undo {
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+
+  /* Open: the files one per line */
+  .ochatting-changes-list {
+    margin: 0;
+    padding: 0 8px 6px 26px;
+    list-style: none;
+  }
+
+  .ochatting-changes-list li {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* File names look like links */
+  .ochatting-changes-file {
+    all: unset;
+    color: var(--text-accent);
+    cursor: pointer;
+  }
+
+  .ochatting-changes-file:hover {
+    text-decoration: underline;
+  }
+
+  .ochatting-changes.is-undone .ochatting-changes-file {
+    color: inherit;
+    text-decoration: line-through;
   }
 
   /* ─── Spinner ───────────────────────────────────────────────────────── */
