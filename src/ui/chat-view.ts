@@ -270,7 +270,9 @@ export class ObsidianChatView extends ItemView {
     // A turn the API history no longer holds can't be edited: cutting there
     // would leave the model without the chat.
     if (index < 0 || !this.plugin.agent.canEditTurn(turnId)) return;
-    const { images = [], selection = null } = history[index];
+    const { selection = null } = history[index];
+    // Images the saved API history no longer holds can't be sent again.
+    const images = (history[index].images ?? []).filter((image) => image.data);
     if (!text.trim() && images.length === 0) return;
     if (this.running) this.stopTurn();
     this.plugin.agent.cutBeforeTurn(turnId);

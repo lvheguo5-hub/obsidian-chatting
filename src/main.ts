@@ -14,7 +14,7 @@ import { copiesBefore } from "./tools/executor";
 import { ChatSettingTab, getModelHeaderLabel } from "./settings";
 import { ObsidianChatView, VIEW_TYPE_CHAT } from "./ui/chat-view";
 import { AgentLoop } from "./agent/loop";
-import { assignLegacyTurnIds } from "./agent/history";
+import { CHAT_STATE_VERSION, migrateChatState, restoreImages, withoutImageData, type ChatState } from "./chat-state";
 import { ChatGPTOAuthStore } from "./auth/chatgptOAuthStore";
 import { ChatGPTOAuthService } from "./auth/chatgptOAuth";
 import { migrateOAuthModel as migrateChatGPTOAuthModelSlug, cachedCatalog, catalogIdentity, normalizeCatalogState } from "./api/model-catalog";
@@ -363,10 +363,12 @@ export default class ChatPlugin extends Plugin {
    */
   private async writeChatState(): Promise<void> {
     try {
-      const state: PersistedChatState = {
+      const state: ChatState = {
+        version: CHAT_STATE_VERSION,
         // Which of the two copies is newer when both are whole.
         savedAt: this.lastChatStateSavedAt = Math.max(Date.now(), this.lastChatStateSavedAt + 1),
-        chatHistory: this.chatHistory.slice(-100), // Cap at 100 UI messages
+        // Cap at 100 UI messages; image data is saved only in the API history
+        chatHistory: withoutImageData(this.chatHistory.slice(-100)),
         agentMessages: this.agent.exportMessages(80), // Keep complete API turns
       };
       const json = JSON.stringify(state);
@@ -383,20 +385,13 @@ export default class ChatPlugin extends Plugin {
     const state = await this.readChatState();
     // Unreadable and not set aside: saving would overwrite it.
     if (state === undefined) return;
-    if (state) {
-      this.lastChatStateSavedAt = state.savedAt ?? 0;
-      // A chat saved before turn IDs gets them here, once: saved with them
-      // from its next turn on, and left alone when it has any.
-      assignLegacyTurnIds(
-        Array.isArray(state.chatHistory) ? state.chatHistory : [],
-        Array.isArray(state.agentMessages) ? state.agentMessages : [],
-      );
-      if (Array.isArray(state.chatHistory)) {
-        this.chatHistory = state.chatHistory;
-      }
-      if (Array.isArray(state.agentMessages)) {
-        this.agent.importMessages(state.agentMessages);
-      }
+    if (state) this.lastChatStateSavedAt = state.savedAt ?? 0;
+    // Older formats are migrated here; the next save writes the current one.
+    const chat = state && migrateChatState(state);
+    if (chat) {
+      this.agent.importMessages(chat.agentMessages);
+      // The images' data comes from the API history (same image ID).
+      this.chatHistory = restoreImages(chat.chatHistory, this.agent.exportMessages());
     }
     this.chatHistoryLoaded = true;
   }
@@ -405,13 +400,16 @@ export default class ChatPlugin extends Plugin {
    * The saved chat: the newer of `chat-state.json` and its copy
    * `chat-state.next.json`, else the legacy file. Null when there is none
    * yet, or when `chat-state.json` couldn't be read and was renamed to
-   * `chat-state.corrupt-<time>.json` (with a notice); undefined when it
-   * couldn't be read and couldn't be renamed either.
+   * `chat-state.corrupt-<time>.json` (with a notice), or was written by a
+   * newer version (`keepIfNewer`); undefined when it couldn't be read and
+   * couldn't be renamed or kept either.
    */
   private async readChatState(): Promise<PersistedChatState | null | undefined> {
     const { adapter } = this.app.vault;
     const read = async (file: string): Promise<PersistedChatState> => {
       const state: unknown = JSON.parse(await adapter.read(file));
+      // A newer version's format isn't checked here: keepIfNewer keeps it aside.
+      if (isRecord(state) && typeof state.version === "number" && state.version > CHAT_STATE_VERSION) return state;
       if (!isPersistedChatState(state)) throw new Error("Not a saved chat");
       return state;
     };
@@ -442,14 +440,15 @@ export default class ChatPlugin extends Plugin {
           const [mainStat, copyStat] = await Promise.all([adapter.stat(path), adapter.stat(this.nextChatStatePath)]);
           // Coarse mobile/filesystem timestamps can tie. In that ambiguous
           // case prefer the old-version main file over resurrecting its copy.
-          if (mainStat && copyStat && mainStat.mtime >= copyStat.mtime) return main;
+          if (mainStat && copyStat && mainStat.mtime >= copyStat.mtime) return this.keepIfNewer(main);
         } catch {
           // A stat failure retains normal timestamp-based recovery.
         }
       }
-      return (copy.savedAt ?? 0) > (main.savedAt ?? 0) ? copy : main;
+      return this.keepIfNewer((copy.savedAt ?? 0) > (main.savedAt ?? 0) ? copy : main);
     }
-    if (main ?? copy) return main ?? copy;
+    const saved = main ?? copy;
+    if (saved) return this.keepIfNewer(saved);
     // Both files are unreadable: keep every existing copy before any
     // fresh save. This also protects a lone truncated .next file.
     const unreadable = [exists ? path : null, copyExists ? this.nextChatStatePath : null]
@@ -471,6 +470,26 @@ export default class ChatPlugin extends Plugin {
         return null;
       }
     }
+    return null;
+  }
+
+  /**
+   * A chat saved by a newer version of the plugin (after a downgrade) isn't
+   * read: this version would drop what it doesn't know, and its next save
+   * would overwrite the file. It is kept as `chat-state.v<version>-<time>.json`
+   * and the chat starts empty (null, with a notice); undefined when it
+   * couldn't be kept. Any other chat is returned as it is.
+   */
+  private async keepIfNewer(state: PersistedChatState): Promise<PersistedChatState | null | undefined> {
+    if (typeof state.version !== "number" || state.version <= CHAT_STATE_VERSION) return state;
+    const name = `chat-state.v${state.version}-${Date.now()}.json`;
+    try {
+      await this.app.vault.adapter.write(`${this.pluginDataDir}/${name}`, JSON.stringify(state));
+    } catch {
+      new Notice("The saved chat is from a newer version of the plugin. The file is left as it is, and the chat isn't saved until Obsidian restarts.");
+      return undefined;
+    }
+    new Notice(`The saved chat is from a newer version of the plugin. It was kept as ${name} in the plugin folder; starting with an empty chat.`);
     return null;
   }
 
@@ -674,19 +693,24 @@ export default class ChatPlugin extends Plugin {
   }
 }
 
+/** `chat-state.json` as read: any format version (`migrateChatState`). */
 interface PersistedChatState {
+  version?: number;
   /** When it was written (ms); tells the newer of the two copies. */
   savedAt?: number;
-  chatHistory?: ChatPlugin["chatHistory"];
-  agentMessages?: Parameters<AgentLoop["importMessages"]>[0];
+  chatHistory?: unknown;
+  agentMessages?: unknown;
 }
 
 function isPersistedChatState(value: unknown): value is PersistedChatState {
   if (!isRecord(value) || Array.isArray(value)) return false;
+  if ("version" in value && (typeof value.version !== "number" || !Number.isInteger(value.version) || value.version < 1)) return false;
+  // From version 2 on, image data is saved only in the API history.
+  const imagesWithData = typeof value.version !== "number" || value.version < 2;
   if (!Array.isArray(value.chatHistory) && !Array.isArray(value.agentMessages)) return false;
   if ("chatHistory" in value && !Array.isArray(value.chatHistory)) return false;
   if ("agentMessages" in value && !Array.isArray(value.agentMessages)) return false;
-  if (Array.isArray(value.chatHistory) && !value.chatHistory.every(isChatHistoryEntry)) return false;
+  if (Array.isArray(value.chatHistory) && !value.chatHistory.every(entry => isChatHistoryEntry(entry, imagesWithData))) return false;
   if (Array.isArray(value.agentMessages) && !value.agentMessages.every(message =>
     isRecord(message) && (message.role === "user" || message.role === "assistant") &&
     (typeof message.content === "string" || (Array.isArray(message.content) &&
@@ -694,7 +718,7 @@ function isPersistedChatState(value: unknown): value is PersistedChatState {
   return !("savedAt" in value) || (typeof value.savedAt === "number" && Number.isFinite(value.savedAt) && value.savedAt >= 0);
 }
 
-function isChatHistoryEntry(entry: unknown): boolean {
+function isChatHistoryEntry(entry: unknown, imagesWithData = true): boolean {
   if (!isRecord(entry) || Array.isArray(entry) || typeof entry.type !== "string") return false;
   if ("text" in entry && typeof entry.text !== "string") return false;
   if (["user", "assistant", "error"].includes(entry.type) && typeof entry.text !== "string") return false;
@@ -708,7 +732,7 @@ function isChatHistoryEntry(entry: unknown): boolean {
     if (!Array.isArray(entry.images) || !entry.images.every(image =>
       isRecord(image) && !Array.isArray(image) && typeof image.id === "string" &&
       typeof image.fileName === "string" && typeof image.mediaType === "string" &&
-      typeof image.data === "string" && typeof image.sizeBytes === "number" &&
+      (typeof image.data === "string" || (!imagesWithData && !("data" in image))) && typeof image.sizeBytes === "number" &&
       Number.isFinite(image.sizeBytes) && image.sizeBytes >= 0)) return false;
     // Svelte's keyed image list cannot render duplicate attachment IDs.
     const imageIds = entry.images.map((image: unknown) =>

@@ -348,7 +348,8 @@
 
   function saveEdit(msg: ChatMessage): void {
     const text = editText.trim();
-    if (!msg.turnId || (!text && !msg.images?.length)) return;
+    // Images no longer saved aren't sent again (chat-view.ts editMessage).
+    if (!msg.turnId || (!text && !msg.images?.some((image) => image.data))) return;
     editingId = null;
     onEdit(msg.turnId, text);
   }
@@ -560,6 +561,22 @@
   }
 </script>
 
+<!-- A user message's images; one no longer saved shows as a chip with its name. -->
+{#snippet userImages(images: ImageAttachment[])}
+  <div class="ochatting-user-images">
+    {#each images as image (image.id)}
+      {#if image.data}
+        <img src={imageDataUrl(image)} alt={image.fileName} />
+      {:else}
+        <span class="ochatting-image-chip" title="Image no longer saved">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+          <span>{image.fileName}</span>
+        </span>
+      {/if}
+    {/each}
+  </div>
+{/snippet}
+
 <div class="ochatting-container">
   <!-- Header -->
   <div class="ochatting-header">
@@ -591,11 +608,10 @@
           {#if editingId === msg.id}
             <div class="ochatting-msg ochatting-user-msg ochatting-user-edit">
               {#if msg.images?.length}
-                <div class="ochatting-user-images">
-                  {#each msg.images as image (image.id)}
-                    <img src={imageDataUrl(image)} alt={image.fileName} />
-                  {/each}
-                </div>
+                {@render userImages(msg.images)}
+              {/if}
+              {#if msg.images?.some((image) => !image.data)}
+                <div class="ochatting-edit-note">Images no longer saved are left out.</div>
               {/if}
               {#if msg.selection}
                 <div class="ochatting-edit-note">Selection from {msg.selection.filePath.split("/").pop()}</div>
@@ -624,11 +640,7 @@
             {/if}
             <div class="ochatting-msg ochatting-user-msg">
               {#if msg.images?.length}
-                <div class="ochatting-user-images">
-                  {#each msg.images as image (image.id)}
-                    <img src={imageDataUrl(image)} alt={image.fileName} />
-                  {/each}
-                </div>
+                {@render userImages(msg.images)}
               {/if}
               {#if msg.text}
                 <div class="ochatting-msg-content">{msg.text}</div>
@@ -1107,6 +1119,23 @@
     max-height: 220px;
     border-radius: var(--radius-s);
     object-fit: contain;
+  }
+
+  .ochatting-image-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 100%;
+    padding: 2px 8px;
+    border-radius: var(--radius-s);
+    background: rgba(0, 0, 0, 0.15);
+    font-size: var(--font-ui-smaller);
+  }
+
+  .ochatting-image-chip span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .ochatting-assistant-msg {

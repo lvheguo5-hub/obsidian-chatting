@@ -70,8 +70,10 @@ a turn the API history no longer holds can't be edited.
 `view-tools.test.mjs`: images in tool results (per provider, kept out of the
 chat view, sent once from the saved history), `view_image` and `view_canvas`
 against the real executor with fake image APIs, canvas drawing, and leaving
-older tool images out of requests. These tests do not establish live-service
-or physical-iOS behavior.
+older tool images out of requests. `images-once.test.mjs`: each attached
+image saved once, and the one-time migration of chats saved before
+`chat-state.json` had a version, and a chat saved by a newer version kept
+aside. These tests do not establish live-service or physical-iOS behavior.
 
 Two Node scripts that exercise the ChatGPT/Codex Responses endpoint
 **without** going through Obsidian, so iteration on the

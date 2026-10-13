@@ -31,6 +31,7 @@ export const bundled = await build({
     export { isSendKey } from './src/ui/send-key';
     export * as canvasRender from './src/tools/canvas-render';
     export { withoutOldToolImages } from './src/agent/history';
+    export * as chatState from './src/chat-state';
   `, resolveDir: process.cwd(), loader: 'ts' },
   bundle: true, write: false, platform: 'node', format: 'esm',
   plugins: [{ name: 'obsidian-test-transport', setup(build) {
