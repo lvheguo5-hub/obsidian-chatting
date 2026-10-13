@@ -28,6 +28,8 @@ const VERBS: Record<string, [string, string]> = {
   read_canvas: ["Reading", "Read"],
   edit_canvas: ["Editing", "Edited"],
   read_web_page: ["Reading", "Read"],
+  view_image: ["Looking at", "Looked at"],
+  view_canvas: ["Looking at", "Looked at"],
 };
 
 /** A file path as a reader names it: the file name, without `.md`. */

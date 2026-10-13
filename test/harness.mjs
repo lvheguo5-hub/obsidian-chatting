@@ -29,6 +29,8 @@ export const bundled = await build({
     export * as debug from './src/debug';
     export { screenAwake } from './src/platform/screen-awake';
     export { isSendKey } from './src/ui/send-key';
+    export * as canvasRender from './src/tools/canvas-render';
+    export { withoutOldToolImages } from './src/agent/history';
   `, resolveDir: process.cwd(), loader: 'ts' },
   bundle: true, write: false, platform: 'node', format: 'esm',
   plugins: [{ name: 'obsidian-test-transport', setup(build) {
@@ -76,6 +78,7 @@ export const bundled = await build({
       export const Platform = { get isPhone() { return globalThis.__isPhone === true; } };
       // Tags dropped, paragraphs kept: enough to see which content got through.
       export const htmlToMarkdown = node => (typeof node === 'string' ? node : node.innerHTML).replace(/<\\/p>/g, '\\n\\n').replace(/<[^>]+>/g, '').trim();
+      export const arrayBufferToBase64 = buffer => Buffer.from(buffer).toString('base64');
     `, loader: 'js' }));
   } }],
 });

@@ -3,10 +3,9 @@ import type { SelectionScope, ToolResult } from "../types";
 import { listMetadata, queryNotes } from "./metadata-query";
 import { getLinks } from "./links";
 import { applyCanvasOperations, canvasSearchTexts, describeCanvas, isCanvasPath, parseCanvas, serializeCanvas } from "./canvas";
+import { renderCanvas, shortIds } from "./canvas-render";
 import { readWebPage } from "./web-page";
-
-/** Images the read tools refuse (SVG is text, so they read it). */
-const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "tif", "tiff", "heic", "heif", "avif", "ico"];
+import { createCanvasElement, decodeImage, encodeCanvas, extensionOf, fitImage, formatBytes, imageMediaType, isImagePath } from "../images";
 
 /**
  * Files the read tools refuse because their text would be useless to the
@@ -53,8 +52,12 @@ export async function executeTool(
         return await searchVault(app, input);
       case "read_file":
         return await readFile(app, input);
+      case "view_image":
+        return await viewImage(app, input);
       case "read_canvas":
         return await readCanvas(app, input);
+      case "view_canvas":
+        return await viewCanvas(app, input);
       case "edit_canvas":
         return await editCanvas(app, input);
       case "create_file":
@@ -247,8 +250,8 @@ async function ensureParentFolder(app: App, filePath: string): Promise<void> {
 /** An error for an image or binary file, whose text would be garbage; null for text. */
 function refuseNonText(file: TFile, tool: string): ToolResult | null {
   const extension = file.extension.toLowerCase();
-  if (IMAGE_EXTENSIONS.includes(extension)) {
-    return { result: `${file.path} is an image; ${tool} reads text only. To show it, the user can attach it to a chat message.`, isError: true };
+  if (isImagePath(file.path)) {
+    return { result: `${file.path} is an image; ${tool} reads text only. Use view_image to look at it.`, isError: true };
   }
   if (BINARY_EXTENSIONS.includes(extension)) {
     return { result: `${file.path} is a binary file; ${tool} reads text only.`, isError: true };
@@ -284,7 +287,7 @@ function snippet(content: string, idx: number, length: number): string {
 function resolveCanvas(app: App, path: string): TFile | ToolResult {
   if (!path) return { result: "'path' parameter is required.", isError: true };
   if (!isCanvasPath(path)) {
-    return { result: `${path} is not a canvas. read_canvas and edit_canvas work on .canvas files; use read_document or edit_document for notes.`, isError: true };
+    return { result: `${path} is not a canvas. read_canvas, view_canvas and edit_canvas work on .canvas files; use read_document or edit_document for notes.`, isError: true };
   }
   const file = app.vault.getFileByPath(normalizePath(path));
   return file ?? { result: `File not found: ${path}`, isError: true };
@@ -477,6 +480,55 @@ async function readFile(
   return { result: content, isError: false };
 }
 
+async function viewImage(
+  app: App,
+  input: Record<string, unknown>
+): Promise<ToolResult> {
+  const path = requiredString(input.path);
+  if (!path) {
+    return { result: "'path' parameter is required.", isError: true };
+  }
+  const file = app.vault.getFileByPath(normalizePath(path));
+  if (!file) {
+    return { result: `File not found: ${path}`, isError: true };
+  }
+  const mediaType = imageMediaType(file.path);
+  if (!mediaType) {
+    const hint = isCanvasPath(file.path) ? "Use view_canvas for canvases."
+      : extensionOf(file.path) === "svg" ? "SVG is text: use read_file."
+      : "Other formats (HEIC, BMP, TIFF, AVIF, …) can't be sent; ask the user to convert the image.";
+    return { result: `${file.path} is not a PNG, JPEG, GIF or WebP image. ${hint}`, isError: true };
+  }
+
+  const bytes = await app.vault.readBinary(file);
+  let image;
+  try {
+    image = await fitImage(bytes, mediaType);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { result: `Can't send ${file.path}: ${msg}.`, isError: true };
+  }
+  const original = `${pixels(image.originalWidth, image.originalHeight)}${formatBytes(bytes.byteLength)}`;
+  const sent = !image.reencoded ? "sent unchanged"
+    : `sent as ${pixels(image.width, image.height)}${image.mediaType.slice(6).toUpperCase()}, ${formatBytes(image.sizeBytes)}`;
+  return {
+    result: `${file.path} (${original}), ${sent}.`,
+    isError: false,
+    images: [{
+      id: `view-${Date.now()}`,
+      fileName: file.path.slice(file.path.lastIndexOf("/") + 1),
+      mediaType: image.mediaType,
+      data: image.data,
+      sizeBytes: image.sizeBytes,
+    }],
+  };
+}
+
+/** "1200×800, " or nothing when the size is unknown. */
+function pixels(width?: number, height?: number): string {
+  return width && height ? `${width}×${height}, ` : "";
+}
+
 async function readCanvas(
   app: App,
   input: Record<string, unknown>
@@ -492,6 +544,53 @@ async function readCanvas(
     return { result: `${file.path} is not valid JSON Canvas (${msg}). Use read_file to see the raw text.`, isError: true };
   }
   return { result: describeCanvas(file.path, canvas), isError: false };
+}
+
+async function viewCanvas(
+  app: App,
+  input: Record<string, unknown>
+): Promise<ToolResult> {
+  const file = resolveCanvas(app, requiredString(input.path));
+  if ("isError" in file) return file;
+
+  let canvas;
+  try {
+    canvas = parseCanvas(await app.vault.cachedRead(file));
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { result: `${file.path} is not valid JSON Canvas (${msg}). Use read_file to see the raw text.`, isError: true };
+  }
+
+  // A full ID, or the short tag drawn on an earlier picture.
+  const wanted = optionalString(input.focus);
+  const focus = wanted && (canvas.nodes.find((n) => n.id === wanted)?.id
+    ?? [...shortIds(canvas.nodes)].find(([, tag]) => tag === wanted)?.[0]);
+  if (wanted && !focus) {
+    return { result: `No node or group with id "${wanted}" in ${file.path}. Use an ID from read_canvas or a tag from an earlier view_canvas legend.`, isError: true };
+  }
+  const rendered = await renderCanvas(canvas, {
+    focus: focus || undefined,
+    createSurface: createCanvasElement,
+    loadImage: async (path) => {
+      const image = app.vault.getFileByPath(normalizePath(path));
+      const mediaType = image ? imageMediaType(image.path) : undefined;
+      if (!image || !mediaType) return null;
+      return decodeImage(await app.vault.readBinary(image), mediaType);
+    },
+  });
+  const png = await encodeCanvas(rendered.surface, "image/png");
+  const name = file.path.slice(file.path.lastIndexOf("/") + 1);
+  return {
+    result: `Picture of ${file.path}: ${rendered.legend}`,
+    isError: false,
+    images: [{
+      id: `canvas-${Date.now()}`,
+      fileName: `${name}.${png.mediaType === "image/png" ? "png" : "jpg"}`,
+      mediaType: png.mediaType,
+      data: png.data,
+      sizeBytes: png.sizeBytes,
+    }],
+  };
 }
 
 async function editCanvas(

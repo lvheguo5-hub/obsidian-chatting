@@ -67,7 +67,11 @@ Stop, nothing without the API). `message-actions.test.mjs`: editing a
 message and regenerating or copying an answer through the chat view, with
 both histories cut at the same turn, also for chats saved before turn IDs;
 a turn the API history no longer holds can't be edited.
-These tests do not establish live-service or physical-iOS behavior.
+`view-tools.test.mjs`: images in tool results (per provider, kept out of the
+chat view, sent once from the saved history), `view_image` and `view_canvas`
+against the real executor with fake image APIs, canvas drawing, and leaving
+older tool images out of requests. These tests do not establish live-service
+or physical-iOS behavior.
 
 Two Node scripts that exercise the ChatGPT/Codex Responses endpoint
 **without** going through Obsidian, so iteration on the

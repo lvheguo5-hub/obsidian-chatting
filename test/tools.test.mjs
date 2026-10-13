@@ -101,7 +101,7 @@ test('read_file and read_document refuse images and binary files, read text and 
     for (const path of ['Pics/cat.png', 'Pics/Photo.JPG', 'Pics/old.bmp']) {
       const result = await run(app, tool, { path });
       assert.equal(result.isError, true, path);
-      assert.match(result.result, new RegExp(`is an image; ${tool} reads text only\\. To show it, the user can attach it to a chat message\\.$`));
+      assert.match(result.result, new RegExp(`is an image; ${tool} reads text only\\. Use view_image to look at it\\.$`));
     }
     for (const path of ['Docs/manual.pdf', 'Data/app.sqlite', 'Audio/memo.m4a']) {
       const result = await run(app, tool, { path });

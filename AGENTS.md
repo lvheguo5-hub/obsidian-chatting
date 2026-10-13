@@ -27,16 +27,18 @@ src/
   types.ts               # All interfaces and defaults
   settings.ts            # PluginSettingTab with model fetching
   debug.ts               # Debug log (the "Debug log" setting)
+  images.ts              # Image limits and re-encoding for view_image and view_canvas
   api/
     client.ts            # Dispatcher: routes to anthropic, openai, or ChatGPT OAuth adapter
     anthropic.ts         # Messages API, adaptive thinking, cache_control
     openai.ts            # Responses API, previous_response_id chaining
   tools/
-    registry.ts          # 19 tool definitions (JSON Schema)
+    registry.ts          # 21 tool definitions (JSON Schema)
     executor.ts          # Runs tools against Obsidian Vault APIs
     metadata-query.ts    # query_notes, list_metadata (metadata cache, no file read)
     links.ts             # get_links: linked and unlinked mentions, outgoing links
     canvas.ts            # JSON Canvas: outline, search texts, node/edge operations
+    canvas-render.ts     # view_canvas: draws a canvas with Canvas 2D, plus a legend
     web-page.ts          # read_web_page: a page's main content as Markdown
   agent/
     loop.ts              # Core agentic loop with selection scope
@@ -62,6 +64,7 @@ src/
 - **Selection scope**: Injected into user message with scoping instructions, and enforced by `executeTool` for that turn: in the selected note only `edit_document` `find_replace` inside the selection (located by its offset and in-memory editor snapshot; changes outside the range can relocate it, while changed or ambiguous selections are refused) succeeds; other changes to that note, or renaming/deleting a folder it is in, are refused. Other notes stay editable.
 - **Panel layout**: The chat view turns off Obsidian's `.view-content` padding and scrolling (`styles.css`) and pads its own parts. On desktop it keeps the bottom padding, which keeps it clear of the status bar (not needed in the left sidebar). In the phone sidebar it keeps 24px for the tab menu's fade below and turns off the 48px fade over the view with the floating navigation; Obsidian doesn't shrink the sidebar for the keyboard, so `chat-view.ts` measures how much of the view the keyboard covers and lifts the chat by that (`--ochatting-lift`). The safe area is left to Obsidian's containers.
 - **Turn IDs**: Each user turn has an ID on its `chatHistory` entry and on its first message in `AgentLoop` (`ask_user` answers have none). Editing a message or regenerating the last answer cuts both histories just before that turn (`cutBeforeTurn`; a new array, so OpenAI replays it in full) and runs the turn again with its images and selection. Chats saved before turn IDs get them on load (`assignLegacyTurnIds`, only while no turn has one).
+- **Images in tool results**: `ToolResult.images` (`view_image`, `view_canvas`) go to the model inside the tool result (Anthropic image blocks; OpenAI and ChatGPT `function_call_output` as an `input_text` + `input_image` list). Only the agent history keeps them; the chat view and its saved `chatHistory` get the text and "[1 image sent to the model]". Requests leave out the images of tool results older than the last 2 user turns, with a note in their place (`withoutOldToolImages`); the stored history keeps them, and attached images are always sent.
 
 ## Build
 
@@ -80,7 +83,7 @@ npm run svelte-check   # Svelte check
 | read_document | `vault.cachedRead()` | Falls back to active file if no path |
 | edit_document | `vault.process()` | Atomic read-modify-write |
 | search_vault | `getMarkdownFiles()` + `.canvas` files + `cachedRead()` | Linear scan, capped; in canvases card text and labels only |
-| read_file | `vault.getFileByPath()` + `cachedRead()` | Text files; images and binary files refused |
+| read_file | `vault.getFileByPath()` + `cachedRead()` | Text files; images (use view_image) and binary files refused |
 | create_file | `vault.create()` | Auto-creates parent folders |
 | list_files | `vault.getFiles()` | Capped at 100 results |
 | rename_file | `fileManager.renameFile()` | Updates all links |
@@ -96,6 +99,8 @@ npm run svelte-check   # Svelte check
 | read_canvas | `vault.cachedRead()` | Outline: groups, nodes, edges with IDs and positions |
 | edit_canvas | `vault.process()` | Node/edge operations, all or nothing; keeps unknown fields |
 | read_web_page | `requestUrl()` + `htmlToMarkdown()` | http(s) only; article/main content, 40,000 characters per call; loaded from the user's device |
+| view_image | `vault.readBinary()` + `createImageBitmap()` | PNG, JPEG, GIF, WebP; over 2048 px or 5 MB scaled down (GIFs never re-encoded) |
+| view_canvas | `vault.cachedRead()` + Canvas 2D | PNG of the layout (at most 1600 px) and a legend of node tags; `focus` zooms to a group or node |
 
 ## Debug
 
