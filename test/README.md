@@ -73,7 +73,12 @@ against the real executor with fake image APIs, canvas drawing, and leaving
 older tool images out of requests. `images-once.test.mjs`: each attached
 image saved once, and the one-time migration of chats saved before
 `chat-state.json` had a version, and a chat saved by a newer version kept
-aside. These tests do not establish live-service or physical-iOS behavior.
+aside. `instructions.test.mjs`: the vault's `AGENTS.md`: the root file in
+the system prompt (cut after 32,768 characters, gone with the file), a
+folder's with the first tool result touching it (outer first, not repeated,
+again after a cut, the active note counts) and the *Vault instructions*
+settings row in both settings paths. These tests do not establish
+live-service or physical-iOS behavior.
 
 Two Node scripts that exercise the ChatGPT/Codex Responses endpoint
 **without** going through Obsidian, so iteration on the

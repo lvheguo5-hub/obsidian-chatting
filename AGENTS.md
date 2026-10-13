@@ -45,6 +45,7 @@ src/
     loop.ts              # Core agentic loop with selection scope
     context.ts           # Builds vault context (active file, selection)
     system-prompt.ts     # Static system prompt (KV cache optimized)
+    instructions.ts      # The vault's AGENTS.md files (root: system prompt; folders: tool results)
   ui/
     chat-view.ts         # ItemView wrapper, mounts Svelte component
     ChatContainer.svelte # All chat UI: messages, input, selection pill
@@ -57,7 +58,8 @@ src/
 
 ## Key Patterns
 
-- **KV cache optimization**: System prompt is static (never includes dynamic context). Dynamic context (active file, selection) goes in the user message after the cached prefix.
+- **KV cache optimization**: System prompt is static (never includes dynamic context). Only the vault's root `AGENTS.md` joins it (read each turn; it changes only when the user edits it, so the cache holds). Dynamic context (active file, selection) goes in the user message after the cached prefix.
+- **Vault instructions (`AGENTS.md`)**: The user's vault, not this repo. A folder's `AGENTS.md` is appended to the first tool result of the conversation that touches a file in that folder or below (outer folders first); the history is searched for it, so it comes once per conversation and again after a cut.
 - **Anthropic `cache_control`**: Breakpoints on system prompt and last tool definition.
 - **Thinking level from the model catalog**: The setting offers the levels the catalog lists for the selected model (Codex `supported_reasoning_levels`, Anthropic `/v1/models` `capabilities.effort`); Anthropic's thinking mode comes from `capabilities.thinking.types`. Without catalog data the previous rules apply: Anthropic thinking by model name, Codex `medium` for reasoning models, and OpenAI API-key requests `medium` for reasoning models (its model list has no levels).
 - **Per-provider API keys**: Stored as `chatting-with-ai-api-key-anthropic` / `chatting-with-ai-api-key-openai` in `SecretStorage`.

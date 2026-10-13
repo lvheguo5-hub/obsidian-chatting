@@ -14,6 +14,7 @@ import { clearChatGPTOAuthState } from "../api/chatgpt-oauth";
 import { TOOL_DEFINITIONS } from "../tools/registry";
 import { executeTool } from "../tools/executor";
 import { buildContext } from "./context";
+import { folderInstructions, instructionsGiven, rootInstructions, toolPaths } from "./instructions";
 import { buildSystemPrompt, buildContextMessage } from "./system-prompt";
 import { trimHistory, cutBeforeTurn, editableTurn, newTurnId } from "./history";
 import { debugLog } from "../debug";
@@ -55,6 +56,8 @@ export class AgentLoop {
   private settings: ChatSettings;
   /** Counts runs and stops; a run whose number is no longer current is stopped. */
   private runVersion = 0;
+  /** The vault root's AGENTS.md as the last turn read it (in the system prompt). */
+  private vaultInstructions: string | null = null;
 
   constructor(app: App, settings: ChatSettings) {
     this.app = app;
@@ -108,7 +111,7 @@ export class AgentLoop {
 
   /** Export the full conversation as a readable markdown transcript */
   exportTranscript(): string {
-    const systemPrompt = buildSystemPrompt();
+    const systemPrompt = buildSystemPrompt(this.vaultInstructions);
 
     const parts: string[] = [
       `# Chatting with AI Transcript`,
@@ -218,8 +221,10 @@ export class AgentLoop {
     // Prune if conversation is too long
     this.pruneHistory();
 
-    // System prompt is static (cache-friendly). Built once, identical every call.
-    const systemPrompt = buildSystemPrompt();
+    // System prompt is static (cache-friendly): the built-in one and the
+    // vault's AGENTS.md, which rarely changes. Read once per turn.
+    this.vaultInstructions = await rootInstructions(this.app);
+    const systemPrompt = buildSystemPrompt(this.vaultInstructions);
 
     debugLog(this.app, "USER_MESSAGE", {
       userMessage,
@@ -333,6 +338,10 @@ export class AgentLoop {
         debugLog(this.app, "TOOL_CALL", { name: tc.name, input: tc.input, result: result.result, isError: result.isError });
 
         if (isStopped()) return;
+        // A folder's own AGENTS.md comes with the first result touching a file there.
+        const folderRules = await folderInstructions(this.app, toolPaths(this.app, tc.name!, tc.input!), instructionsGiven(this.messages));
+        if (isStopped()) return;
+        if (folderRules) result.result = `${result.result}\n\n${folderRules}`;
         resultBlocks[index] = {
           type: "tool_result",
           tool_use_id: tc.id,

@@ -32,6 +32,7 @@ export const bundled = await build({
     export * as canvasRender from './src/tools/canvas-render';
     export { withoutOldToolImages } from './src/agent/history';
     export * as chatState from './src/chat-state';
+    export * as instructions from './src/agent/instructions';
   `, resolveDir: process.cwd(), loader: 'ts' },
   bundle: true, write: false, platform: 'node', format: 'esm',
   plugins: [{ name: 'obsidian-test-transport', setup(build) {

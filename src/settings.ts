@@ -4,10 +4,14 @@ import type { ChatSettings, Provider } from "./types";
 import { DEFAULT_PROVIDER_MODELS } from "./types";
 import type { ChatGPTDeviceAuthorization, PollHandle } from "./auth/chatgptOAuth";
 import { clearDebugLog } from "./debug";
+import { INSTRUCTIONS_FILE } from "./agent/instructions";
 
 import { type ModelOption, type CatalogState, catalogIdentity, cachedCatalog, refreshCatalog, getCatalogModels, clearCatalogModels, catalogModel, catalogDefaultLevel, resolveThinkingLevel, thinkingLevelLabel, CATALOG_TTL } from "./api/model-catalog";
 
 const CUSTOM_MODEL_OPTION = "__custom__";
+
+/** A new AGENTS.md: a comment saying what goes in it (the AI reads it too, harmlessly). */
+const INSTRUCTIONS_TEMPLATE = "<!-- Instructions for AI assistants working in this vault (Chatting with AI and other tools that read AGENTS.md). Write each instruction as a plain sentence below. -->\n\n";
 
 const FALLBACK_MODELS: Record<string, ModelOption[]> = {
   anthropic: [
@@ -99,6 +103,7 @@ export class ChatSettingTab extends PluginSettingTab {
       { name: "Thinking level", visible: () => !!this.thinkingOptions(), render: setting => this.renderThinkingLevel(setting) },
       { name: "Web search", render: setting => this.renderWebSearch(setting) },
       { name: "Enter sends message", aliases: ["Keyboard", "New line"], render: setting => this.renderEnterSends(setting) },
+      { name: "Vault instructions", aliases: ["AGENTS.md", "Instructions"], render: setting => this.renderInstructions(setting) },
       { name: "Max tool iterations", render: setting => this.renderMaxIterations(setting) },
       { name: "Debug log", aliases: ["Troubleshooting"], render: setting => this.renderDebugLog(setting) },
     ];
@@ -133,6 +138,7 @@ export class ChatSettingTab extends PluginSettingTab {
 
     this.renderWebSearch(new Setting(containerEl));
     this.renderEnterSends(new Setting(containerEl));
+    this.renderInstructions(new Setting(containerEl));
     this.renderMaxIterations(new Setting(containerEl));
     this.renderDebugLog(new Setting(containerEl));
   }
@@ -196,6 +202,20 @@ export class ChatSettingTab extends PluginSettingTab {
           })
       );
   }
+  /** AGENTS.md at the vault root: open it, or create it first. */
+  private renderInstructions(setting: Setting): void {
+    const exists = !!this.app.vault.getFileByPath(INSTRUCTIONS_FILE);
+    setting
+      .setName("Vault instructions")
+      .setDesc(`Standing instructions for the AI, in ${INSTRUCTIONS_FILE} at the vault root; every chat follows them. A folder can have its own ${INSTRUCTIONS_FILE} for its notes.${exists ? "" : " There is none yet."}`)
+      .addButton((button) => button.setButtonText(exists ? "Open" : "Create").onClick(async () => {
+        const file = this.app.vault.getFileByPath(INSTRUCTIONS_FILE)
+          ?? await this.app.vault.create(INSTRUCTIONS_FILE, INSTRUCTIONS_TEMPLATE);
+        await this.app.workspace.getLeaf("tab").openFile(file);
+        this.refreshSettingsTab();
+      }));
+  }
+
   private renderMaxIterations(setting: Setting): void {
     const s = this.plugin.settings;
     setting
