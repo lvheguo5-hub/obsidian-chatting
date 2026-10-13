@@ -63,8 +63,11 @@ page without text) and its label. `enter-sends.test.mjs`,
 setting (default, kept, passed to the chat), the *Debug log* setting
 (nothing written while off; Copy and Clear; no keys in the log) and the
 screen wake lock (held during a turn, re-acquired on return, released on
-Stop, nothing without the API). These tests do not establish live-service or
-physical-iOS behavior.
+Stop, nothing without the API). `message-actions.test.mjs`: editing a
+message and regenerating or copying an answer through the chat view, with
+both histories cut at the same turn, also for chats saved before turn IDs;
+a turn the API history no longer holds can't be edited.
+These tests do not establish live-service or physical-iOS behavior.
 
 Two Node scripts that exercise the ChatGPT/Codex Responses endpoint
 **without** going through Obsidian, so iteration on the

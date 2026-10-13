@@ -1,4 +1,5 @@
-// The "Enter sends message" setting: on by default, kept in data.json, passed to the chat.
+// The "Enter sends message" setting: on by default, kept in data.json, passed
+// to the chat; the input and the edit box of a sent message follow it.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { api, settings, vaultApp } from './harness.mjs';
@@ -77,4 +78,18 @@ test('The chat view passes the setting to the chat, also when settings are saved
   plugin.settings.enterSends = true;
   await plugin.saveSettings();
   assert.equal(chat.enterSends, true);
+});
+
+test('Which keys send a message or save an edit, with the setting on and off', () => {
+  const key = (extra = {}) => ({ key: 'Enter', shiftKey: false, ctrlKey: false, metaKey: false, isComposing: false, ...extra });
+  // On: Enter sends, Shift+Enter is a new line.
+  assert.equal(api.isSendKey(key(), true), true);
+  assert.equal(api.isSendKey(key({ shiftKey: true }), true), false);
+  // Off: Enter is a new line, Ctrl/Cmd+Enter sends.
+  assert.equal(api.isSendKey(key(), false), false);
+  assert.equal(api.isSendKey(key({ ctrlKey: true }), false), true);
+  assert.equal(api.isSendKey(key({ metaKey: true }), false), true);
+  // Never while an IME composes, and only Enter.
+  assert.equal(api.isSendKey(key({ isComposing: true }), true), false);
+  assert.equal(api.isSendKey(key({ key: 'a' }), true), false);
 });

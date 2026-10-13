@@ -8,12 +8,13 @@ import {
   type TAbstractFile,
   type App,
 } from "obsidian";
-import type { ChatSettings, SelectionScope, ImageAttachment } from "./types";
+import type { ChatSettings, SelectionScope, ChatHistoryEntry } from "./types";
 import { DEFAULT_SETTINGS, DEFAULT_PROVIDER_MODELS } from "./types";
 import { copiesBefore } from "./tools/executor";
 import { ChatSettingTab, getModelHeaderLabel } from "./settings";
 import { ObsidianChatView, VIEW_TYPE_CHAT } from "./ui/chat-view";
 import { AgentLoop } from "./agent/loop";
+import { assignLegacyTurnIds } from "./agent/history";
 import { ChatGPTOAuthStore } from "./auth/chatgptOAuthStore";
 import { ChatGPTOAuthService } from "./auth/chatgptOAuth";
 import { migrateOAuthModel as migrateChatGPTOAuthModelSlug, cachedCatalog, catalogIdentity, normalizeCatalogState } from "./api/model-catalog";
@@ -46,16 +47,7 @@ export default class ChatPlugin extends Plugin {
   /** ChatGPT OAuth service (used by the chatgpt-oauth provider). */
   chatgptOAuth!: ChatGPTOAuthService;
   /** Chat messages for replaying into the UI when the view reopens */
-  chatHistory: Array<{
-    type: string;
-    text?: string;
-    images?: ImageAttachment[];
-    toolName?: string;
-    toolInput?: Record<string, unknown>;
-    toolResult?: { result: string; isError: boolean };
-    /** "stopped": the quiet note left by Stop before any answer was shown. */
-    errorKind?: "stopped";
-  }> = [];
+  chatHistory: ChatHistoryEntry[] = [];
   /** Set once the saved chat has been read; saves before that would overwrite it. */
   private chatHistoryLoaded = false;
   /** The chat-state write in progress, and the one queued after it. */
@@ -393,6 +385,12 @@ export default class ChatPlugin extends Plugin {
     if (state === undefined) return;
     if (state) {
       this.lastChatStateSavedAt = state.savedAt ?? 0;
+      // A chat saved before turn IDs gets them here, once: saved with them
+      // from its next turn on, and left alone when it has any.
+      assignLegacyTurnIds(
+        Array.isArray(state.chatHistory) ? state.chatHistory : [],
+        Array.isArray(state.agentMessages) ? state.agentMessages : [],
+      );
       if (Array.isArray(state.chatHistory)) {
         this.chatHistory = state.chatHistory;
       }

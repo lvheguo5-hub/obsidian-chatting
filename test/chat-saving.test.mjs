@@ -341,5 +341,6 @@ test('Valid image attachments and tool result history remain intact on restore',
     { type: 'assistant', text: 'Answer' },
   ];
   const { plugin } = await loadFrom(JSON.stringify({ chatHistory }));
-  assert.deepEqual(plugin.chatHistory, chatHistory);
+  // A chat saved before turn IDs gets them on load (edit and regenerate).
+  assert.deepEqual(plugin.chatHistory.map(({ turnId: _turnId, ...entry }) => entry), chatHistory);
 });

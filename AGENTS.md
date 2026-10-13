@@ -47,6 +47,7 @@ src/
     ChatContainer.svelte # All chat UI: messages, input, selection pill
     math-markdown.ts     # Render-time fix-up: math delimiters, table wiki links
     tool-label.ts        # One-line labels of tool steps ("Edited Plan")
+    send-key.ts          # Which key sends (or saves an edit): "Enter sends message"
   platform/
     screen-awake.ts      # Keeps the screen on while an answer is generated
 ```
@@ -60,6 +61,7 @@ src/
 - **In-memory chat persistence**: `AgentLoop` and `chatHistory` live on the plugin instance, surviving view open/close cycles.
 - **Selection scope**: Injected into user message with scoping instructions, and enforced by `executeTool` for that turn: in the selected note only `edit_document` `find_replace` inside the selection (located by its offset and in-memory editor snapshot; changes outside the range can relocate it, while changed or ambiguous selections are refused) succeeds; other changes to that note, or renaming/deleting a folder it is in, are refused. Other notes stay editable.
 - **Panel layout**: The chat view turns off Obsidian's `.view-content` padding and scrolling (`styles.css`) and pads its own parts. On desktop it keeps the bottom padding, which keeps it clear of the status bar (not needed in the left sidebar). In the phone sidebar it keeps 24px for the tab menu's fade below and turns off the 48px fade over the view with the floating navigation; Obsidian doesn't shrink the sidebar for the keyboard, so `chat-view.ts` measures how much of the view the keyboard covers and lifts the chat by that (`--ochatting-lift`). The safe area is left to Obsidian's containers.
+- **Turn IDs**: Each user turn has an ID on its `chatHistory` entry and on its first message in `AgentLoop` (`ask_user` answers have none). Editing a message or regenerating the last answer cuts both histories just before that turn (`cutBeforeTurn`; a new array, so OpenAI replays it in full) and runs the turn again with its images and selection. Chats saved before turn IDs get them on load (`assignLegacyTurnIds`, only while no turn has one).
 
 ## Build
 

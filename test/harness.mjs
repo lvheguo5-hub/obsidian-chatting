@@ -28,6 +28,7 @@ export const bundled = await build({
     export { WEB_PAGE_CHARS } from './src/tools/web-page';
     export * as debug from './src/debug';
     export { screenAwake } from './src/platform/screen-awake';
+    export { isSendKey } from './src/ui/send-key';
   `, resolveDir: process.cwd(), loader: 'ts' },
   bundle: true, write: false, platform: 'node', format: 'esm',
   plugins: [{ name: 'obsidian-test-transport', setup(build) {
