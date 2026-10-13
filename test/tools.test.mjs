@@ -55,7 +55,8 @@ function propertiesVault(properties = {}) {
   let edits = 0;
   const app = {
     workspace: { getActiveFile: () => null },
-    vault: { getFileByPath: path => (path === 'Note.md' ? { path } : null) },
+    // The note's text stands in as its properties (set_properties reads it before and after).
+    vault: { getFileByPath: path => (path === 'Note.md' ? { path } : null), cachedRead: async () => JSON.stringify(frontmatter) },
     fileManager: { processFrontMatter: async (file, fn) => { edits++; fn(frontmatter); } },
   };
   return { app, frontmatter, edits: () => edits };

@@ -48,11 +48,14 @@
     onOpenConversation: (id: string) => void;
     onRenameConversation: (id: string, title: string) => void;
     onDeleteConversation: (id: string) => void;
+    /** The eye button: follow the AI's edits on or off. */
+    onToggleFollow: () => void;
   }
 
   let {
     app, component, provider, model, onSend, onClear, onStop, onEdit, onRegenerate, onCopy,
     title, onNewChat, listConversations, onOpenConversation, onRenameConversation, onDeleteConversation,
+    onToggleFollow,
   }: Props = $props();
 
   let displayModel = $state("");
@@ -396,6 +399,13 @@
     enterSends = on;
   }
 
+  /** "Follow the AI's edits": the eye button shows the setting. */
+  let followEdits = $state(true);
+
+  export function setFollowEdits(on: boolean): void {
+    followEdits = on;
+  }
+
   // ─── Internal handlers ────────────────────────────────────────────────
 
   /** Ctrl/Cmd+Enter, which Obsidian keeps from the input (see chat-view.ts). */
@@ -704,6 +714,21 @@
       <span class="ochatting-header-title" title={displayTitle}>{displayTitle || "New chat"}</span>
       <span class="ochatting-header-model">{displayModel || "No model"}</span>
     </div>
+    <button
+      class="ochatting-follow-btn"
+      class:is-active={followEdits}
+      type="button"
+      onclick={onToggleFollow}
+      aria-label="Follow the AI's edits"
+      aria-pressed={followEdits}
+      title={followEdits ? "Following the AI's edits (click to stop)" : "Follow the AI's edits"}
+    >
+      {#if followEdits}
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"></path><circle cx="12" cy="12" r="3"></circle></svg>
+      {:else}
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"></path><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"></path><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"></path><path d="m2 2 20 20"></path></svg>
+      {/if}
+    </button>
     <!-- Nothing to clear in an empty chat: the trash folds away until there is -->
     <button
       class="ochatting-clear-btn"
@@ -1211,6 +1236,31 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  /* Follow the AI's edits: an eye, highlighted while on; pushes itself and the trash right */
+  .ochatting-follow-btn {
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+    margin-left: auto;
+    padding: 0;
+    border: none;
+    border-radius: var(--radius-s);
+    background: none;
+    box-shadow: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .ochatting-follow-btn:hover,
+  .ochatting-follow-btn.is-active {
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
   }
 
   /* Clear: a red trash icon (it empties the conversation) */

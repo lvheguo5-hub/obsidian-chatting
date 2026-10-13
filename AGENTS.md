@@ -52,6 +52,7 @@ src/
     math-markdown.ts     # Render-time fix-up: math delimiters, table wiki links
     tool-label.ts        # One-line labels of tool steps ("Edited Plan")
     send-key.ts          # Which key sends (or saves an edit): "Enter sends message"
+    show-in-view.ts      # Shows a spot in a note or canvas (Follow the AI's edits, open_document)
   platform/
     screen-awake.ts      # Keeps the screen on while an answer is generated
 ```
@@ -70,6 +71,7 @@ src/
 - **Turn IDs**: Each user turn has an ID on its `chatHistory` entry and on its first message in `AgentLoop` (`ask_user` answers have none). Editing a message or regenerating the last answer cuts both histories just before that turn (`cutBeforeTurn`; a new array, so OpenAI replays it in full) and runs the turn again with its images and selection. Chats saved before turn IDs get them in the one-time migration of `chat-state.json` (`assignLegacyTurnIds`, only while no turn has one).
 - **Images in tool results**: `ToolResult.images` (`view_image`, `view_canvas`) go to the model inside the tool result (Anthropic image blocks; OpenAI and ChatGPT `function_call_output` as an `input_text` + `input_image` list). Only the agent history keeps them; the chat view and its saved `chatHistory` get the text and "[1 image sent to the model]". Requests leave out the images of tool results older than the last 2 user turns, with a note in their place (`withoutOldToolImages`); the stored history keeps them, and attached images are always sent.
 - **Saved chat format**: `chat-state.json` has a `version` (3): `{ version, savedAt, activeConversationId, conversations: [{ id, title, customTitle, createdAt, updatedAt, chatHistory, agentMessages }] }`; a file without a version is version 1. Older formats are migrated once on load (`migrateChatState` in `src/chat-state.ts`; 2 → 3 makes the single chat the first, active conversation) and the next save writes the current one. A newer version than the plugin knows (saved by a later release, before a downgrade) isn't read: it is copied to `chat-state.v<version>-<time>.json` and the chat starts empty, so the next save doesn't overwrite it. Each conversation keeps the last 100 visible entries and 80 API messages. Image data is saved only in the API history; the visible history keeps each image's ID, name, type and size and gets the data back by ID on load (`restoreImages`). An image the API history no longer holds shows as a chip with its name and isn't sent again on edit or regenerate.
+- **Follow the AI's edits**: `edit_document`, `set_properties`, `create_file` and `edit_canvas` return `ToolResult.focus`: the changed range in the note (a before/after comparison in `withChange`) or the changed canvas cards. The chat view takes it off the result before showing and saving it; it never goes to the model. With the setting on, `ui/show-in-view.ts` opens the spot through Obsidian's search-match ephemeral state, in the tab that already shows the file or one reused follow tab, without taking the focus from the chat (on a phone the note stays behind the chat). On a canvas it then selects and centers all changed cards through the canvas view's internal API, checked first; without it the match state's select-and-pan stays. The follow tab closes when the plugin unloads; its ID is kept with `saveLocalStorage`, so a tab the saved layout brought back is closed at the next start.
 
 ## Build
 
@@ -93,7 +95,7 @@ npm run svelte-check   # Svelte check
 | list_files | `vault.getFiles()` | Capped at 100 results |
 | rename_file | `fileManager.renameFile()` | Updates all links |
 | delete_file | `fileManager.trashFile()` | Respects user trash setting |
-| open_document | `workspace.getLeaf().openFile()` | Opens file in editor |
+| open_document | `ui/show-in-view.ts` (`openFile()` with the search-match state) | Only when the user asks; optional `text` or canvas `node_id`; the tab showing the file or the follow tab |
 | get_properties | `metadataCache.getFileCache()` | Reads YAML frontmatter |
 | set_properties | `fileManager.processFrontMatter()` | Safe YAML merge/remove |
 | get_links | `metadataCache.resolvedLinks` / `unresolvedLinks` + `cachedRead()` | Linked and unlinked mentions, outgoing links; the old name `get_backlinks` still runs |

@@ -103,6 +103,7 @@ export class ChatSettingTab extends PluginSettingTab {
       { name: "Thinking level", visible: () => !!this.thinkingOptions(), render: setting => this.renderThinkingLevel(setting) },
       { name: "Web search", render: setting => this.renderWebSearch(setting) },
       { name: "Enter sends message", aliases: ["Keyboard", "New line"], render: setting => this.renderEnterSends(setting) },
+      { name: "Follow the AI's edits", aliases: ["Show edits", "Highlight"], render: setting => this.renderFollowEdits(setting) },
       { name: "Vault instructions", aliases: ["AGENTS.md", "Instructions"], render: setting => this.renderInstructions(setting) },
       { name: "Max tool iterations", render: setting => this.renderMaxIterations(setting) },
       { name: "Debug log", aliases: ["Troubleshooting"], render: setting => this.renderDebugLog(setting) },
@@ -138,6 +139,7 @@ export class ChatSettingTab extends PluginSettingTab {
 
     this.renderWebSearch(new Setting(containerEl));
     this.renderEnterSends(new Setting(containerEl));
+    this.renderFollowEdits(new Setting(containerEl));
     this.renderInstructions(new Setting(containerEl));
     this.renderMaxIterations(new Setting(containerEl));
     this.renderDebugLog(new Setting(containerEl));
@@ -198,6 +200,20 @@ export class ChatSettingTab extends PluginSettingTab {
           .setValue(s.enterSends)
           .onChange(async (value) => {
             s.enterSends = value;
+            await this.plugin.saveSettings();
+          })
+      );
+  }
+  private renderFollowEdits(setting: Setting): void {
+    const s = this.plugin.settings;
+    setting
+      .setName("Follow the AI's edits")
+      .setDesc("When the AI changes a note or canvas, it opens next to the chat at the changed spot: changed text is highlighted, changed canvas cards are selected. Also the eye button in the chat header.")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(s.followEdits)
+          .onChange(async (value) => {
+            s.followEdits = value;
             await this.plugin.saveSettings();
           })
       );

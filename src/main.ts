@@ -13,6 +13,7 @@ import { DEFAULT_SETTINGS, DEFAULT_PROVIDER_MODELS } from "./types";
 import { copiesBefore } from "./tools/executor";
 import { ChatSettingTab, getModelHeaderLabel } from "./settings";
 import { ObsidianChatView, VIEW_TYPE_CHAT } from "./ui/chat-view";
+import { closeFollowTab, closeLeftoverFollowTab } from "./ui/show-in-view";
 import { AgentLoop } from "./agent/loop";
 import {
   CHAT_STATE_VERSION,
@@ -105,6 +106,8 @@ export default class ChatPlugin extends Plugin {
 
     // Restore persisted chat history
     await this.loadChatHistory();
+    // A follow tab saved with the layout when Obsidian last closed goes.
+    this.app.workspace.onLayoutReady(() => closeLeftoverFollowTab(this.app));
 
     this.addSettingTab(new ChatSettingTab(this.app, this));
 
@@ -228,6 +231,8 @@ export default class ChatPlugin extends Plugin {
   onunload(): void {
     this.agent?.abort();
     screenAwake.reset();
+    // The tab that showed the AI's edits closes with the plugin (and Obsidian).
+    closeFollowTab(this.app);
     void this.saveChatHistory();
     this.unloaded = true;
   }
@@ -671,6 +676,7 @@ export default class ChatPlugin extends Plugin {
     const view = this.getChatView();
     view?.updateModel(this.modelHeaderLabel());
     view?.updateEnterSends();
+    view?.updateFollowEdits();
   }
 
   /** Copy `debug.log` to the clipboard (the "Debug log" setting writes it). */
@@ -905,6 +911,7 @@ function normalizeSettings(value: unknown): Partial<ChatSettings> {
   }
   if (typeof value.enableWebSearch === "boolean") settings.enableWebSearch = value.enableWebSearch;
   if (typeof value.enterSends === "boolean") settings.enterSends = value.enterSends;
+  if (typeof value.followEdits === "boolean") settings.followEdits = value.followEdits;
   if (typeof value.debugLog === "boolean") settings.debugLog = value.debugLog;
   settings.modelCatalog = normalizeCatalogState(value.modelCatalog);
   return settings;

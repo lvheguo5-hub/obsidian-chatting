@@ -132,7 +132,7 @@ test('Settings: the row works in both settings paths; Copy and Clear', async () 
   const drawn = [];
   const ignore = () => {};
   Object.assign(tab, { containerEl: { empty: ignore }, renderProvider: ignore, renderApiKeySection: ignore, renderModelSection: ignore,
-    renderWebSearch: ignore, renderEnterSends: ignore, renderInstructions: ignore, renderMaxIterations: ignore, loadCatalog: async () => {}, renderDebugLog: setting => drawn.push(setting) });
+    renderWebSearch: ignore, renderEnterSends: ignore, renderFollowEdits: ignore, renderInstructions: ignore, renderMaxIterations: ignore, loadCatalog: async () => {}, renderDebugLog: setting => drawn.push(setting) });
   tab.display();
   assert.equal(drawn.length, 1);
 });

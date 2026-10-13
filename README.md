@@ -71,6 +71,10 @@ Click the pencil under a message you sent to change it: the chat continues from 
 
 The chat header shows the current chat's title, taken from your first message. **New chat** (the pen icon) starts a new one; so do the *New chat* command and the ribbon icon's right-click menu, and *Chat about this note* and *Send selection to chat* always start a new chat. The clock icon opens your chats, most recent first: open one to go on with it, rename it with the pencil, or delete it (you confirm first). **Clear** (the trash icon) empties only the current chat. The chat you had open is open again after a restart. Starting a new chat, switching, or deleting the current chat stops an answer that is still running; what it showed so far stays in its chat. Each chat sends only its own messages to the provider.
 
+## 👀 Follow the AI's edits
+
+When the AI changes a note or canvas, it opens next to the chat at the changed spot: changed text is highlighted, changed canvas cards are selected and centered. It opens in the tab that already shows the note, else in one reused tab that closes with Obsidian, so your own tab stays as it is, and the chat input keeps the focus. On a phone the note waits behind the chat until you close it. On by default; switch it with the eye button in the chat header or in the settings. Ask "show me …" and the AI opens a note at a passage or a canvas at a card for you.
+
 ## 📋 Your instructions in AGENTS.md
 
 Put standing instructions for the AI (writing style, where new notes go, how you structure things) in an `AGENTS.md` note at the root of your vault; every chat follows them. A folder can have its own `AGENTS.md` for the notes in it: the AI gets it the first time in a chat that it reads or changes a file there, and it adds to the vault-wide one. The file follows the [agents.md](https://agents.md) convention, so other AI tools that read `AGENTS.md` use the same instructions. **Settings → Vault instructions** opens the file, or creates it with a short comment.
@@ -83,7 +87,7 @@ This is your vault's `AGENTS.md`, not the one in this plugin's source code (that
 |---|---|---|
 | **Read** | `read_document`, `read_file`, `search_vault`, `list_files`, `get_links`, `get_properties`, `get_current_datetime` | Open notes/files, search by name and content, browse the tree, find a note's links as the Backlinks and Outgoing links panes show them (linked mentions with their lines, unlinked mentions, outgoing links), read frontmatter, fetch the current time in your locale. |
 | **Write** | `edit_document`, `create_file`, `set_properties` | Surgical find-and-replace / insert / full replace; create new notes (parent folders auto-created); safe YAML frontmatter merge or remove. |
-| **Manage** | `rename_file`, `delete_file`, `open_document`, `ask_user` | Rename or move (links auto-update); move to trash (respects your trash setting); open a file in the editor; pause and ask you when something is ambiguous. |
+| **Manage** | `rename_file`, `delete_file`, `open_document`, `ask_user` | Rename or move (links auto-update); move to trash (respects your trash setting); show you a note at a passage or a canvas at a card when you ask; pause and ask you when something is ambiguous. |
 | **Query** | `query_notes`, `list_metadata` | Find notes by tags (nested tags too, all or any) and properties (a value or just set), in a folder, sorted by path, last change or a property ("my #project notes that are active, by due date"); list the tags and properties the vault uses. From Obsidian's metadata cache, without reading the notes. |
 | **Canvas** | `read_canvas`, `edit_canvas` | Read a canvas as an outline of groups, cards and connections; add, change, move or remove cards and connections in one all-or-nothing step, with new cards placed so they don't overlap. `search_vault` also finds text on canvas cards and labels. |
 | **Web** | `read_web_page` | Read a web page (a link you give, or one web search found) as Markdown, without navigation and scripts; long pages in parts. |
@@ -114,6 +118,7 @@ Below **Model**, **Thinking level** offers *Default* plus the levels the model l
 ### Other settings
 
 - **Enter sends message** — on by default (Shift+Enter starts a new line). Turn it off to make Enter start a new line; then send with the send button or Ctrl+Enter (Cmd+Enter on a Mac). Editing a sent message follows the same keys.
+- **Follow the AI's edits** — on by default (see [Follow the AI's edits](#-follow-the-ais-edits)); the eye button in the chat header switches it too.
 - **Vault instructions** — opens the vault's `AGENTS.md`, or creates it (see [Your instructions in AGENTS.md](#-your-instructions-in-agentsmd)).
 - **Debug log** — off by default. For troubleshooting it writes what is needed to follow a problem to `debug.log` in the plugin folder: your messages as sent (with their context), the model's answers and tool calls, tool results and errors (never keys). **Copy** (or the *Copy debug log* command) puts it on the clipboard; **Clear** deletes it.
 

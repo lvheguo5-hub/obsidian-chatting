@@ -3,7 +3,8 @@ import { mount, unmount } from "svelte";
 import type { Component } from "svelte";
 import type ChatPlugin from "../main";
 import ChatContainer from "./ChatContainer.svelte";
-import type { ToolResult, SelectionScope, ImageAttachment, ConversationSummary } from "../types";
+import type { ToolResult, SelectionScope, ImageAttachment, ConversationSummary, ViewTarget } from "../types";
+import { showInView } from "./show-in-view";
 import { screenAwake } from "../platform/screen-awake";
 import { newTurnId } from "../agent/history";
 
@@ -58,6 +59,7 @@ interface ChatContainerProps {
   onOpenConversation: (id: string) => void;
   onRenameConversation: (id: string, title: string) => void;
   onDeleteConversation: (id: string) => void;
+  onToggleFollow: () => void;
 }
 
 interface ChatContainerApi extends Record<string, unknown> {
@@ -84,6 +86,7 @@ interface ChatContainerApi extends Record<string, unknown> {
   sendFromKeyboard(target: EventTarget | null): boolean;
   /** Which turns can be edited or answered again. */
   setEditable?(check: (turnId: string) => boolean): void;
+  setFollowEdits(on: boolean): void;
 }
 
 /**
@@ -198,11 +201,13 @@ export class ObsidianChatView extends ItemView {
         onOpenConversation: (id: string) => this.openConversation(id),
         onRenameConversation: (id: string, title: string) => this.renameConversation(id, title),
         onDeleteConversation: (id: string) => this.deleteConversation(id),
+        onToggleFollow: () => void this.toggleFollow(),
       },
     });
 
     this.renderHistory();
     this.updateEnterSends();
+    this.updateFollowEdits();
     this.chatContainer.focus();
   }
 
@@ -271,6 +276,17 @@ export class ObsidianChatView extends ItemView {
   /** Enter sends, or starts a new line (the "Enter sends message" setting). */
   updateEnterSends(): void {
     this.chatContainer?.setEnterSends(this.plugin.settings.enterSends);
+  }
+
+  /** The eye button in the header shows the "Follow the AI's edits" setting. */
+  updateFollowEdits(): void {
+    this.chatContainer?.setFollowEdits(this.plugin.settings.followEdits);
+  }
+
+  /** The eye button: the "Follow the AI's edits" setting, on or off. */
+  private async toggleFollow(): Promise<void> {
+    this.plugin.settings.followEdits = !this.plugin.settings.followEdits;
+    await this.plugin.saveSettings();
   }
 
   /** Clear conversation */
@@ -409,11 +425,12 @@ export class ObsidianChatView extends ItemView {
           this.answerShown = true;
           toolCalls.set(name, { id: chat.addToolCall(name, input), input });
         },
-        onToolResult: (name, result: ToolResult) => {
+        onToolResult: (name, { focus, ...result }: ToolResult) => {
           if (name === "ask_user") return;
           const call = toolCalls.get(name);
           if (call) chat.updateToolResult(call.id, name, result);
           history.push({ type: "tool-result", toolName: name, toolInput: savedToolInput(call?.input ?? {}), toolResult: result });
+          if (focus && !result.isError && this.plugin.settings.followEdits) this.follow(focus);
         },
         onResponse: (text) => {
           this.answerShown = true;
@@ -460,6 +477,14 @@ export class ObsidianChatView extends ItemView {
         void this.plugin.saveChatHistory();
       }
     }
+  }
+
+  /** Edits shown one after another, in the order the AI made them. */
+  private following: Promise<unknown> = Promise.resolve();
+
+  /** Show an edit the AI just made (setting "Follow the AI's edits"). */
+  private follow(target: ViewTarget): void {
+    this.following = this.following.then(() => showInView(this.plugin.app, target)).catch(() => undefined);
   }
 
   /** Stops the running turn; what it showed so far stays. */

@@ -33,6 +33,7 @@ export const bundled = await build({
     export { withoutOldToolImages } from './src/agent/history';
     export * as chatState from './src/chat-state';
     export * as instructions from './src/agent/instructions';
+    export * as showInView from './src/ui/show-in-view';
   `, resolveDir: process.cwd(), loader: 'ts' },
   bundle: true, write: false, platform: 'node', format: 'esm',
   plugins: [{ name: 'obsidian-test-transport', setup(build) {
