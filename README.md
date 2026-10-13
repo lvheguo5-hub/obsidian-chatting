@@ -22,7 +22,7 @@
 ## ✨ Why?
 
 - **Three providers, your choice** — Anthropic API, OpenAI API, or sign in with your ChatGPT account. No marketplace of half-broken providers.
-- **16 vault-native tools** — read, edit, search, create, rename, frontmatter, tags and properties, links. The agent goes from idea to changed files without leaving the chat.
+- **18 vault-native tools** — read, edit, search, create, rename, frontmatter, tags and properties, links, canvases. The agent goes from idea to changed files without leaving the chat.
 - **Mobile-parity, by design** — no streaming, no Node-only modules, no localhost callbacks. iOS and Android behave the same as desktop.
 - **Selection scope** — highlight text in any note, send it to chat, the assistant edits only inside the selection.
 - **Secrets in the OS keychain** — never in `data.json`, never synced across devices.
@@ -61,7 +61,7 @@ You: tighten this — keep my voice
 
 The agent uses find-and-replace scoped to the selection text, and the tools enforce it for that turn: in that note, only the highlighted copy of the text can change; rewriting the whole note, inserting, setting properties, or renaming or deleting it (or a folder it's in) is refused. The editor snapshot keeps the selected copy anchored when text is added above it. If the selected text changed or its identity is ambiguous, the tools ask you to select it again. Other notes stay editable, and renaming one of them still updates links to it in this note.
 
-## 🛠️ 16 vault-native tools
+## 🛠️ 18 vault-native tools
 
 | Group | Tools | What they do |
 |---|---|---|
@@ -69,6 +69,7 @@ The agent uses find-and-replace scoped to the selection text, and the tools enfo
 | **Write** | `edit_document`, `create_file`, `set_properties` | Surgical find-and-replace / insert / full replace; create new notes (parent folders auto-created); safe YAML frontmatter merge or remove. |
 | **Manage** | `rename_file`, `delete_file`, `open_document`, `ask_user` | Rename or move (links auto-update); move to trash (respects your trash setting); open a file in the editor; pause and ask you when something is ambiguous. |
 | **Query** | `query_notes`, `list_metadata` | Find notes by tags (nested tags too, all or any) and properties (a value or just set), in a folder, sorted by path, last change or a property ("my #project notes that are active, by due date"); list the tags and properties the vault uses. From Obsidian's metadata cache, without reading the notes. |
+| **Canvas** | `read_canvas`, `edit_canvas` | Read a canvas as an outline of groups, cards and connections; add, change, move or remove cards and connections in one all-or-nothing step, with new cards placed so they don't overlap. `search_vault` also finds text on canvas cards and labels. |
 
 ## ⚙️ Providers
 
@@ -164,7 +165,7 @@ ln -s "$(pwd)" /path/to/vault/.obsidian/plugins/chatting-with-ai
 ## 🗺️ Roadmap
 
 - [x] Three providers (Anthropic, OpenAI, ChatGPT account)
-- [x] 16 vault-native tools
+- [x] 18 vault-native tools
 - [x] iOS / Android parity
 - [x] Selection scope
 - [x] Official Obsidian Community Plugins listing

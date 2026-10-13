@@ -33,6 +33,7 @@ test('Every vault tool has its own label', () => {
     'read_document', 'edit_document', 'search_vault', 'read_file', 'create_file', 'list_files', 'rename_file',
     'delete_file', 'get_properties', 'set_properties', 'get_links', 'get_current_datetime', 'open_document', 'ask_user',
     'query_notes', 'list_metadata',
+    'read_canvas', 'edit_canvas',
   ];
   for (const name of tools) {
     assert.notEqual(toolLabel(name, {}), name.replace(/_/g, ' '), name);

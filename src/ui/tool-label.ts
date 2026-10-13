@@ -25,6 +25,8 @@ const VERBS: Record<string, [string, string]> = {
   ask_user: ["Asking a question", "Asked a question"],
   query_notes: ["Finding notes", "Found notes"],
   list_metadata: ["Listing the tags and properties of", "Listed the tags and properties of"],
+  read_canvas: ["Reading", "Read"],
+  edit_canvas: ["Editing", "Edited"],
 };
 
 /** A file path as a reader names it: the file name, without `.md`. */

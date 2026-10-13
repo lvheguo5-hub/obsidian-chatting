@@ -31,10 +31,11 @@ src/
     anthropic.ts         # Messages API, adaptive thinking, cache_control
     openai.ts            # Responses API, previous_response_id chaining
   tools/
-    registry.ts          # 16 tool definitions (JSON Schema)
+    registry.ts          # 18 tool definitions (JSON Schema)
     executor.ts          # Runs tools against Obsidian Vault APIs
     metadata-query.ts    # query_notes, list_metadata (metadata cache, no file read)
     links.ts             # get_links: linked and unlinked mentions, outgoing links
+    canvas.ts            # JSON Canvas: outline, search texts, node/edge operations
   agent/
     loop.ts              # Core agentic loop with selection scope
     context.ts           # Builds vault context (active file, selection)
@@ -72,7 +73,7 @@ npm run svelte-check   # Svelte check
 |------|-------------|-------|
 | read_document | `vault.cachedRead()` | Falls back to active file if no path |
 | edit_document | `vault.process()` | Atomic read-modify-write |
-| search_vault | `getMarkdownFiles()` + `cachedRead()` | Linear scan, capped |
+| search_vault | `getMarkdownFiles()` + `.canvas` files + `cachedRead()` | Linear scan, capped; in canvases card text and labels only |
 | read_file | `vault.getFileByPath()` + `cachedRead()` | Text files; images and binary files refused |
 | create_file | `vault.create()` | Auto-creates parent folders |
 | list_files | `vault.getFiles()` | Capped at 100 results |
@@ -86,6 +87,8 @@ npm run svelte-check   # Svelte check
 | ask_user | UI callback | Pauses agent loop |
 | query_notes | `metadataCache.getFileCache()` + `getAllTags()` | Tags (nested too), properties, folder; sorted; capped at 200 |
 | list_metadata | `metadataCache.getFileCache()` + `getAllTags()` | Tags and properties with counts |
+| read_canvas | `vault.cachedRead()` | Outline: groups, nodes, edges with IDs and positions |
+| edit_canvas | `vault.process()` | Node/edge operations, all or nothing; keeps unknown fields |
 
 ## Debug
 

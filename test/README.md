@@ -51,8 +51,12 @@ with nested ones, all or any; property values, list items, links, set;
 folder; sorting; limit) and `list_metadata` with their labels.
 `links.test.mjs`: `get_links` (linked mentions with their lines, unlinked
 mentions by name or alias outside links and properties, outgoing links
-including unresolved ones) and the old name `get_backlinks`. These tests do
-not establish live-service or physical-iOS behavior.
+including unresolved ones) and the old name `get_backlinks`.
+`canvas.test.mjs`: the canvas tools against the real executor: the
+`read_canvas` outline, `edit_canvas` operations (Obsidian's file format,
+unknown fields kept, placement without overlap, refs, all or nothing) and
+canvas search in `search_vault`. These tests do not establish live-service
+or physical-iOS behavior.
 
 Two Node scripts that exercise the ChatGPT/Codex Responses endpoint
 **without** going through Obsidian, so iteration on the
