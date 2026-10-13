@@ -7,6 +7,7 @@ import { applyCanvasOperations, canvasSearchTexts, describeCanvas, isCanvasPath,
 import { renderCanvas, shortIds } from "./canvas-render";
 import { readWebPage } from "./web-page";
 import type { ChangeLog } from "./undo";
+import { fileAttachment, isDocumentFile } from "../files/attachments";
 import { createCanvasElement, decodeImage, encodeCanvas, extensionOf, fitImage, formatBytes, imageMediaType, isImagePath } from "../images";
 
 /**
@@ -312,6 +313,10 @@ async function readDocument(
   if (!file) {
     return { result: path ? `File not found: ${path}` : "No active document open.", isError: true };
   }
+  // A PDF or Office file can be read: read_file attaches it.
+  if (isDocumentFile(file.path) && !isImagePath(file.path)) {
+    return { result: `${file.path} is a PDF or Office file; read_document reads text only. Use read_file, which attaches it.`, isError: true };
+  }
   const refusal = refuseNonText(file, "read_document");
   if (refusal) return refusal;
 
@@ -505,6 +510,13 @@ async function readFile(
   const file = app.vault.getFileByPath(normalizePath(path));
   if (!file) {
     return { result: `File not found: ${path}`, isError: true };
+  }
+
+  if (isDocumentFile(file.path)) {
+    // PDF and Office files go to the model as files (the provider reads them).
+    const attachment = await fileAttachment(file.path.slice(file.path.lastIndexOf("/") + 1), await app.vault.readBinary(file));
+    if (typeof attachment === "string") return { result: attachment, isError: true };
+    return { result: `${file.path} (${formatBytes(attachment.sizeBytes)}) is attached.`, isError: false, files: [attachment] };
   }
 
   const refusal = refuseNonText(file, "read_file");

@@ -23,15 +23,15 @@ export function trimHistory(messages: UnifiedMessage[], limit: number): UnifiedM
   return start === 0 ? messages : messages.slice(start);
 }
 
-/** Tool results of the last 2 user turns keep their images when sent. */
+/** Tool results of the last 2 user turns keep their images and files when sent. */
 export const TOOL_IMAGE_TURNS = 2;
 
 /**
  * The history as sent to a provider: tool results older than the last
  * `turns` user turns lose their images (`view_image`, `view_canvas`) and
- * say so in their text, so a full replay doesn't send every image again.
- * Images the user attached stay. Nothing is changed in place; unchanged
- * messages are the same objects.
+ * files (`read_file` on a PDF) and say so in their text, so a full replay
+ * doesn't send every image or file again. What the user attached stays.
+ * Nothing is changed in place; unchanged messages are the same objects.
  */
 export function withoutOldToolImages(messages: UnifiedMessage[], turns = TOOL_IMAGE_TURNS): UnifiedMessage[] {
   let cutoff = -1;
@@ -48,15 +48,18 @@ export function withoutOldToolImages(messages: UnifiedMessage[], turns = TOOL_IM
       if (block.type === "tool_use" && block.id && block.name) toolNames.set(block.id, block.name);
     }
   }
+  const hasMedia = (block: ContentBlock) => block.type === "tool_result" && !!(block.images?.length || block.files?.length);
   return messages.map((message, index) => {
-    if (index >= cutoff || typeof message.content === "string" ||
-      !message.content.some((block) => block.type === "tool_result" && block.images?.length)) return message;
+    if (index >= cutoff || typeof message.content === "string" || !message.content.some(hasMedia)) return message;
     return {
       ...message,
       content: message.content.map((block): ContentBlock => {
-        if (block.type !== "tool_result" || !block.images?.length) return block;
-        const { images, ...rest } = block;
-        const what = images.length === 1 ? "image" : `${images.length} images`;
+        if (!hasMedia(block)) return block;
+        const { images = [], files = [], ...rest } = block;
+        const what = [
+          ...(images.length ? [images.length === 1 ? "image" : `${images.length} images`] : []),
+          ...(files.length ? [files.length === 1 ? "file" : `${files.length} files`] : []),
+        ].join(" and ");
         const tool = toolNames.get(block.tool_use_id ?? "") ?? "a tool";
         const note = `[${what} from ${tool} omitted to save context]`;
         return { ...rest, content: rest.content ? `${rest.content}\n\n${note}` : note };

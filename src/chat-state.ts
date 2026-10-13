@@ -1,9 +1,10 @@
 /**
  * The saved chats (`chat-state.json`): the conversation records, their
  * format, the one-time migrations from older formats, and saving each
- * attached image once. Pure functions; `main.ts` reads and writes the file.
+ * attached image and file once. Pure functions; `main.ts` reads and writes
+ * the file.
  */
-import type { ChatHistoryEntry, ImageAttachment, UnifiedMessage } from "./types";
+import type { ChatHistoryEntry, FileAttachment, ImageAttachment, UnifiedMessage } from "./types";
 import { assignLegacyTurnIds, trimHistory, MAX_CONVERSATION_LENGTH } from "./agent/history";
 
 /** Current format version of `chat-state.json`. */
@@ -26,9 +27,9 @@ export interface ConversationRecord {
   createdAt: number;
   /** When a turn last started or the conversation was cleared; orders the list. */
   updatedAt: number;
-  /** Visible history; saved with images without their data. */
+  /** Visible history; saved with images and files without their data. */
   chatHistory: ChatHistoryEntry[];
-  /** API history; the only place with image data. */
+  /** API history; the only place with image and file data. */
   agentMessages: UnifiedMessage[];
   /** For the model with the next turn: what the user did meanwhile (e.g. undid an answer's changes). */
   notes?: string[];
@@ -120,11 +121,11 @@ export function newConversation(now = Date.now()): ConversationRecord {
 
 /**
  * The title taken from the first user message: one line, at most 40
- * characters (an image's name when there is no text).
+ * characters (an image's or file's name when there is no text).
  */
 export function conversationTitle(entries: ChatHistoryEntry[]): string {
   const first = entries.find((entry) => entry.type === "user");
-  const text = (first?.text ?? "").replace(/\s+/g, " ").trim() || first?.images?.[0]?.fileName || "";
+  const text = (first?.text ?? "").replace(/\s+/g, " ").trim() || first?.images?.[0]?.fileName || first?.attachedFiles?.[0]?.fileName || "";
   if (!text) return NEW_CHAT_TITLE;
   return text.length > TITLE_LENGTH ? `${text.slice(0, TITLE_LENGTH - 1).trimEnd()}…` : text;
 }
@@ -139,7 +140,7 @@ export function newestFirst(conversations: ConversationRecord[]): ConversationRe
   return [...conversations].sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
-/** A conversation as saved: capped, image data only in the API history. */
+/** A conversation as saved: capped, image and file data only in the API history. */
 export function savedConversation(conversation: ConversationRecord): ConversationRecord {
   return {
     ...conversation,
@@ -148,30 +149,47 @@ export function savedConversation(conversation: ConversationRecord): Conversatio
   };
 }
 
-/** Entries as saved: images keep their ID, name, type and size, not their data. */
+/**
+ * Entries as saved: images keep their ID, name, type and size, not their
+ * data; attached files likewise (their data and text stay in the API
+ * history).
+ */
 export function withoutImageData(entries: ChatHistoryEntry[]): ChatHistoryEntry[] {
-  return entries.map((entry) => entry.images?.length
-    ? { ...entry, images: entry.images.map(({ data: _data, ...image }) => image as ImageAttachment) }
-    : entry);
+  return entries.map((entry) => {
+    if (!entry.images?.length && !entry.attachedFiles?.length) return entry;
+    const saved = { ...entry };
+    if (entry.images?.length) saved.images = entry.images.map(({ data: _data, ...image }) => image as ImageAttachment);
+    if (entry.attachedFiles?.length) {
+      saved.attachedFiles = entry.attachedFiles.map(({ id, fileName, mediaType, sizeBytes }) => ({ id, fileName, mediaType, sizeBytes, data: "" }));
+    }
+    return saved;
+  });
 }
 
 /**
- * Entries with their images taken from the API history (same image ID).
- * An image the API history no longer holds (trimmed) keeps the data it
- * still has (a chat migrated from version 1, this session only) or gets
- * empty data; the view then shows a chip with its name instead.
+ * Entries with their images and files taken from the API history (same
+ * ID). An image the API history no longer holds (trimmed) keeps the data
+ * it still has (a chat migrated from version 1, this session only) or gets
+ * empty data; the view then shows a chip with its name instead. A file no
+ * longer held stays a name only and isn't sent again.
  */
 export function restoreImages(entries: ChatHistoryEntry[], messages: UnifiedMessage[]): ChatHistoryEntry[] {
   const images = new Map<string, ImageAttachment>();
+  const files = new Map<string, FileAttachment>();
   for (const message of messages) {
     if (typeof message.content === "string") continue;
     for (const block of message.content) {
       if (block.type === "image" && block.image) images.set(block.image.id, block.image);
+      if (block.type === "file" && block.file) files.set(block.file.id, block.file);
     }
   }
-  return entries.map((entry) => entry.images?.length
-    ? { ...entry, images: entry.images.map((image) => images.get(image.id) ?? (image.data ? image : { ...image, data: "" })) }
-    : entry);
+  return entries.map((entry) => {
+    if (!entry.images?.length && !entry.attachedFiles?.length) return entry;
+    const restored = { ...entry };
+    if (entry.images?.length) restored.images = entry.images.map((image) => images.get(image.id) ?? (image.data ? image : { ...image, data: "" }));
+    if (entry.attachedFiles?.length) restored.attachedFiles = entry.attachedFiles.map((file) => files.get(file.id) ?? file);
+    return restored;
+  });
 }
 
 function arrayOf<T>(value: unknown): T[] {

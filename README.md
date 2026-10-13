@@ -65,11 +65,11 @@ The agent uses find-and-replace scoped to the selection text, and the tools enfo
 
 ## 🔗 Mention notes
 
-Type `@` (at the start or after a space) or `[[` in the input and pick a file: recent files come first, and typing narrows the list. The file goes into your message as a link (`[[Plan]]`). When you send it, the current content of each file the message links to goes along, so the AI doesn't have to look it up first: a note's text (up to 20,000 characters per note, 60,000 per message), a canvas as its outline, an image as an image. Other files go by name only; the AI can read them with its tools. The chat shows only what you typed.
+Type `@` (at the start or after a space) or `[[` in the input and pick a file: recent files come first, and typing narrows the list. The file goes into your message as a link (`[[Plan]]`). When you send it, the current content of each file the message links to goes along, so the AI doesn't have to look it up first: a note's text (up to 20,000 characters per note, 60,000 per message), a canvas as its outline, an image as an image, a PDF, Word, Excel or PowerPoint file as a file (see Providers below), other text files as text. Other files go by name only. The chat shows only what you typed.
 
 ## ✏️ Edit, copy, regenerate
 
-Click the pencil under a message you sent to change it: the chat continues from there with the same images and selection, and what came after it is dropped. Changes the AI already made to notes stay. Every answer has **Copy** (its Markdown source); the last one also has **Regenerate**. With a mouse the buttons appear on hover; on touch screens they are always shown.
+Click the pencil under a message you sent to change it: the chat continues from there with the same images, files and selection, and what came after it is dropped. Changes the AI already made to notes stay. Every answer has **Copy** (its Markdown source); the last one also has **Regenerate**. With a mouse the buttons appear on hover; on touch screens they are always shown.
 
 ## 💬 Chats
 
@@ -93,7 +93,7 @@ This is your vault's `AGENTS.md`, not the one in this plugin's source code (that
 
 | Group | Tools | What they do |
 |---|---|---|
-| **Read** | `read_document`, `read_file`, `search_vault`, `list_files`, `get_links`, `get_properties`, `get_current_datetime` | Open notes/files, search by name and content, browse the tree, find a note's links as the Backlinks and Outgoing links panes show them (linked mentions with their lines, unlinked mentions, outgoing links), read frontmatter, fetch the current time in your locale. |
+| **Read** | `read_document`, `read_file`, `search_vault`, `list_files`, `get_links`, `get_properties`, `get_current_datetime` | Open notes/files (PDF, Word, Excel and PowerPoint files go to the model as files), search by name and content, browse the tree, find a note's links as the Backlinks and Outgoing links panes show them (linked mentions with their lines, unlinked mentions, outgoing links), read frontmatter, fetch the current time in your locale. |
 | **Write** | `edit_document`, `create_file`, `set_properties` | Surgical find-and-replace / insert / full replace; create new notes (parent folders auto-created); safe YAML frontmatter merge or remove. |
 | **Manage** | `rename_file`, `delete_file`, `open_document`, `ask_user` | Rename or move (links auto-update); move to trash (respects your trash setting); show you a note at a passage or a canvas at a card when you ask; pause and ask you when something is ambiguous. |
 | **Query** | `query_notes`, `list_metadata` | Find notes by tags (nested tags too, all or any) and properties (a value or just set), in a folder, sorted by path, last change or a property ("my #project notes that are active, by due date"); list the tags and properties the vault uses. From Obsidian's metadata cache, without reading the notes. |
@@ -110,6 +110,8 @@ This is your vault's `AGENTS.md`, not the one in this plugin's source code (that
 | **ChatGPT account** | Sign in with ChatGPT | GPT-5.5 | Uses your ChatGPT plan instead of an OpenAI API key. |
 
 Attach up to four images to a message, including by pasting an image from the clipboard. Images are sent with that message to the selected provider; large photos are resized before sending.
+
+Attach up to four PDF, Word, Excel, PowerPoint or text files to a message as well (paperclip or paste, 10 MB each), mention them with `@`, or let the agent read them from your vault (`read_file`). OpenAI and the ChatGPT account read PDF and Office files themselves; Anthropic reads PDFs, and for Anthropic the plugin reads the text of Word, Excel and PowerPoint files itself (without their images and charts; older `.doc`, `.xls` and `.ppt` files only by name). Text files go as text to all. A PDF is read with its page images, at the provider's token cost.
 
 > **About ChatGPT account login.** This provider signs you in with your ChatGPT account and routes requests through the ChatGPT/Codex backend (not `api.openai.com`). It requires an active ChatGPT plan with Codex access. The model picker fetches the Codex catalog for your account; account permissions still determine whether a model can be used.
 
@@ -211,6 +213,7 @@ ln -s "$(pwd)" /path/to/vault/.obsidian/plugins/chatting-with-ai
 - [x] Multi-conversation history: new chat, switch, rename, delete
 - [ ] Archive and search of past conversations
 - [x] Image attachments where the provider supports them
+- [x] PDF, Word, Excel, PowerPoint and text file attachments
 - [x] Dynamic provider catalogs with automatic refresh when the 24-hour cache expires
 
 Have a request? Open an issue.
@@ -220,7 +223,7 @@ Have a request? Open an issue.
 <details>
 <summary><b>Will my notes be uploaded somewhere?</b></summary>
 
-Only what the agent needs for the current turn. When you ask a question, the agent decides which tools to call — `read_document`, `search_vault`, etc. — and the contents fetched by those calls (plus the active note context) are sent to your chosen provider. Images you attach are sent with that message and kept in the local chat history until you clear or delete the chat or the message is older than the part of the chat the plugin keeps for the provider; so are images the agent looks at (`view_image`, `view_canvas`). Nothing is uploaded in the background. There is no vault index. Your vault's root `AGENTS.md`, if there is one, goes with every message; a folder's `AGENTS.md` goes with the first tool result in that folder. When the agent reads a web page (`read_web_page`), your device loads that address, as a browser would, and the page's text goes to your provider like a note's.
+Only what the agent needs for the current turn. When you ask a question, the agent decides which tools to call — `read_document`, `search_vault`, etc. — and the contents fetched by those calls (plus the active note context) are sent to your chosen provider. Images and files you attach are sent with that message and kept in the local chat history until you clear or delete the chat or the message is older than the part of the chat the plugin keeps for the provider; so are images the agent looks at (`view_image`, `view_canvas`) and files it reads (`read_file` on a PDF or Office file). Nothing is uploaded in the background. There is no vault index. Your vault's root `AGENTS.md`, if there is one, goes with every message; a folder's `AGENTS.md` goes with the first tool result in that folder. When the agent reads a web page (`read_web_page`), your device loads that address, as a browser would, and the page's text goes to your provider like a note's.
 
 </details>
 
@@ -248,7 +251,7 @@ Probably not — keeping the provider list small is a deliberate choice. Two API
 <details>
 <summary><b>Where is chat history stored? Will it sync?</b></summary>
 
-Locally, all chats in one file: `<vault>/.obsidian/plugins/chatting-with-ai/chat-state.json`, with a second copy in `chat-state.next.json` to recover from an interrupted save. If neither copy can be read, existing files are kept as `chat-state.corrupt-<time>.json` or `chat-state.next.corrupt-<time>.json` instead of being overwritten; chats saved by a newer version of the plugin are kept as `chat-state.v<version>-<time>.json` when you go back to an older one. If a backup cannot be made, saving is disabled for that session and a notice explains why. It is **not** synced by Obsidian Sync (plugin data files are excluded by default). API keys live in the OS keychain via SecretStorage and are also not synced. Attached images are saved once, with the recent messages kept for the provider, until you clear or delete the chat; in older messages the chat shows just the image's name. Images the agent looked at are kept the same way, in the part of the chat kept for the provider.
+Locally, all chats in one file: `<vault>/.obsidian/plugins/chatting-with-ai/chat-state.json`, with a second copy in `chat-state.next.json` to recover from an interrupted save. If neither copy can be read, existing files are kept as `chat-state.corrupt-<time>.json` or `chat-state.next.corrupt-<time>.json` instead of being overwritten; chats saved by a newer version of the plugin are kept as `chat-state.v<version>-<time>.json` when you go back to an older one. If a backup cannot be made, saving is disabled for that session and a notice explains why. It is **not** synced by Obsidian Sync (plugin data files are excluded by default). API keys live in the OS keychain via SecretStorage and are also not synced. Attached images and files are saved once, with the recent messages kept for the provider, until you clear or delete the chat; in older messages the chat shows just the name. Images and files the agent looked at are kept the same way, in the part of the chat kept for the provider. Files of up to 10 MB each can make the file large.
 
 </details>
 
@@ -256,6 +259,13 @@ Locally, all chats in one file: `<vault>/.obsidian/plugins/chatting-with-ai/chat
 <summary><b>Is it safe to let the agent read web pages?</b></summary>
 
 Mind one risk: `read_web_page` loads pages from your device, so it can also reach addresses only your device reaches (`localhost`, your home or company network). Text that hides instructions — on a web page, in a note, in a file — could get the agent to read such an address, or to put vault content into an address it loads, which sends that content to the site. Each page comes marked as information, not instructions, but that isn't a guarantee. Each step shows the address it reads; don't ask the agent to read pages while you work with content you don't trust.
+
+</details>
+
+<details>
+<summary><b>Is it safe to attach Office files from unknown sources?</b></summary>
+
+Yes. Word, Excel and PowerPoint files are ZIP archives, and the plugin unpacks them on your device to read their text (for Anthropic). A file is unpacked to at most 64 MB: a crafted file that unpacks to more (a "zip bomb") is attached without its text instead of freezing Obsidian.
 
 </details>
 

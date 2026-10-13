@@ -8,6 +8,7 @@ import type {
   ImageAttachment,
   ToolResult,
   MentionContext,
+  FileAttachment,
 } from "../types";
 import { sendMessage } from "../api/client";
 import { clearOpenAIState } from "../api/openai";
@@ -31,14 +32,19 @@ const KEEP_RECENT = 60;
 
 /**
  * What the chat view shows and saves for a tool result: the text and a
- * marker, never the image data, which lives only in the agent history
- * (otherwise chat-state.json would hold it twice).
+ * marker, never the image or file data, which lives only in the agent
+ * history (otherwise chat-state.json would hold it twice).
  */
 function displayResult(result: ToolResult): ToolResult {
-  const count = result.images?.length ?? 0;
-  if (!count) return result;
+  const images = result.images?.length ?? 0;
+  const files = result.files?.length ?? 0;
+  if (!images && !files) return result;
+  const what = [
+    ...(images ? [images === 1 ? "1 image" : `${images} images`] : []),
+    ...(files ? [files === 1 ? "1 file" : `${files} files`] : []),
+  ].join(" and ");
   return {
-    result: `${result.result}\n\n[${count === 1 ? "1 image" : `${count} images`} sent to the model]`,
+    result: `${result.result}\n\n[${what} sent to the model]`,
     isError: result.isError,
   };
 }
@@ -147,6 +153,9 @@ export class AgentLoop {
           } else if (block.type === "image" && block.image) {
             parts.push(`[Image attachment: ${block.image.fileName}]`);
             parts.push(``);
+          } else if (block.type === "file" && block.file) {
+            parts.push(`[File attachment: ${block.file.fileName}]`);
+            parts.push(``);
           } else if (block.type === "tool_use") {
             parts.push(`### Tool Call: \`${block.name}\``);
             parts.push(``);
@@ -165,6 +174,10 @@ export class AgentLoop {
               parts.push(`[Image: ${image.fileName}]`);
               parts.push(``);
             }
+            for (const file of block.files ?? []) {
+              parts.push(`[File: ${file.fileName}]`);
+              parts.push(``);
+            }
           }
         }
       }
@@ -178,6 +191,7 @@ export class AgentLoop {
    * starts. `mentioned`: the files the message links to, sent before it.
    * `notes`: what the user did since the last turn (e.g. undid an answer's
    * changes), for the model.
+   * `files`: PDF, Office and text files the user attached.
    */
   async run(
     userMessage: string,
@@ -186,7 +200,8 @@ export class AgentLoop {
     images: ImageAttachment[] = [],
     turnId: string = newTurnId(),
     mentioned: MentionContext | null = null,
-    notes: string[] = []
+    notes: string[] = [],
+    files: FileAttachment[] = []
   ): Promise<void> {
     const version = ++this.runVersion;
     const isStopped = () => version !== this.runVersion;
@@ -201,6 +216,7 @@ export class AgentLoop {
     const context = { ...buildContext(this.app), ...(notes.length ? { notes } : {}) };
     const contextPrefix = mentioned ? `${buildContextMessage(context)}\n\n${mentioned.text}` : buildContextMessage(context);
     images = [...images, ...mentioned?.images ?? []];
+    files = [...files, ...mentioned?.files ?? []];
 
     // If there's a selection, inject it as scoped context
     let fullMessage: string;
@@ -219,9 +235,10 @@ export class AgentLoop {
       fullMessage = `${contextPrefix}\n\n${userMessage}`;
     }
 
-    const content: string | ContentBlock[] = images.length > 0
+    const content: string | ContentBlock[] = images.length > 0 || files.length > 0
       ? [
           ...images.map((image): ContentBlock => ({ type: "image", image })),
+          ...files.map((file): ContentBlock => ({ type: "file", file })),
           { type: "text", text: fullMessage },
         ]
       : fullMessage;
@@ -244,6 +261,7 @@ export class AgentLoop {
       hasSelection: !!selection,
       imageCount: images.length,
       imageNames: images.map((image) => image.fileName),
+      fileNames: files.map((file) => file.fileName),
     });
 
     const maxIterations = turnSettings.maxIterations || 20;
@@ -358,6 +376,7 @@ export class AgentLoop {
           content: result.result,
           is_error: result.isError,
           ...(result.images?.length ? { images: result.images } : {}),
+          ...(result.files?.length ? { files: result.files } : {}),
         };
         callbacks.onToolResult(tc.name!, displayResult(result));
       }

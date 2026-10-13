@@ -92,6 +92,11 @@ add before it (notes capped, canvas outline, images, other files by name).
 deletes taken back last first, files changed since named and asked about,
 the changes row and its state after a restart, undo kept within its
 conversation, and the note for the model with the next turn only).
+`files.test.mjs`: files (ZIP entries stored and deflated; the text of Word
+with headings, lists and tables, Excel sheets as CSV and PowerPoint in slide
+order; what a file becomes; each provider's form in a message and in a tool
+result such as `read_file` on a PDF, left out two turns later; attached
+files saved without their data, restored, and sent again on edit).
 `fold-turn.test.mjs`: which rows of a finished turn fold into one line above
 its answer (steps, a text that led into one, the changes row; not an
 ask_user question, the answer or a single step without changes). These tests

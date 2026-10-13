@@ -2,7 +2,9 @@
   import type { App, TFile } from "obsidian";
   import { Component as ObsidianComponent, MarkdownRenderer, Notice } from "obsidian";
   import { tick } from "svelte";
-  import type { ToolResult, SelectionScope, ImageAttachment, ConversationSummary } from "../types";
+  import type { ToolResult, SelectionScope, ImageAttachment, FileAttachment, ConversationSummary } from "../types";
+  import { ACCEPTED_FILES, fileAttachment } from "../files/attachments";
+  import { formatBytes } from "../images";
   import { insertMention, mentionAt, mentionCandidates, type MentionQuery } from "./mentions";
   import { normalizeMathMarkdown } from "./math-markdown";
   import { isSendKey } from "./send-key";
@@ -11,6 +13,7 @@
   import type { ChangesState } from "./chat-view";
 
   const MAX_IMAGE_COUNT = 4;
+  const MAX_FILE_COUNT = 4;
   const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
   const MAX_TOTAL_IMAGE_BYTES = 12 * 1024 * 1024;
   const SUPPORTED_IMAGE_TYPES = new Set([
@@ -25,6 +28,8 @@
     type: "user" | "assistant" | "tool-call" | "tool-result" | "error" | "thinking" | "changes" | "steps";
     text?: string;
     images?: ImageAttachment[];
+    /** User messages: attached files (PDF, Office, text). */
+    attached?: FileAttachment[];
     toolName?: string;
     toolInput?: Record<string, unknown>;
     toolResult?: ToolResult;
@@ -50,7 +55,7 @@
     component: ObsidianComponent;
     provider: string;
     model: string;
-    onSend: (text: string, selection: SelectionScope | null, images: ImageAttachment[]) => void;
+    onSend: (text: string, selection: SelectionScope | null, images: ImageAttachment[], files: FileAttachment[]) => void;
     onClear: () => void;
     onStop: () => void;
     onEdit: (turnId: string, text: string) => void;
@@ -178,6 +183,8 @@
   let textareaEl: HTMLTextAreaElement | undefined = $state();
   let fileInputEl: HTMLInputElement | undefined = $state();
   let attachments = $state<ImageAttachment[]>([]);
+  /** Attached PDF, Office and text files. */
+  let fileAttachments = $state<FileAttachment[]>([]);
   // The input shows a scrollbar only once its text is taller than it can grow.
   let inputScrollable = $state(false);
   let nextId = 0;
@@ -297,8 +304,9 @@
     images: ImageAttachment[] = [],
     turnId?: string,
     selection?: SelectionScope,
+    files: FileAttachment[] = [],
   ): void {
-    messages.push({ id: nextId++, type: "user", text, images: images.slice(), turnId, selection });
+    messages.push({ id: nextId++, type: "user", text, images: images.slice(), attached: files.slice(), turnId, selection });
   }
 
   export function addAssistantMessage(text: string): void {
@@ -430,6 +438,7 @@
     messages = [];
     editingId = null;
     attachments = [];
+    fileAttachments = [];
     if (fileInputEl) fileInputEl.value = "";
     selection = null;
     hideThinking();
@@ -498,17 +507,19 @@
 
   function handleSend(): void {
     const text = inputText.trim();
-    if (!text && attachments.length === 0) return;
+    if (!text && attachments.length === 0 && fileAttachments.length === 0) return;
 
-    if (askUserResolve && attachments.length > 0) {
-      new Notice("Image attachments are not supported when answering a tool question.");
+    if (askUserResolve && (attachments.length > 0 || fileAttachments.length > 0)) {
+      new Notice("Attachments are not supported when answering a tool question.");
       return;
     }
 
     inputText = "";
     resetHeight();
     const sentImages = attachments.slice();
+    const sentFiles = fileAttachments.slice();
     attachments = [];
+    fileAttachments = [];
 
     if (askUserResolve) {
       addUserMessage(text);
@@ -521,7 +532,7 @@
     // Pass current selection and consume it (one-shot per send)
     const currentSelection = selection;
     selection = null;
-    onSend(text, currentSelection, sentImages);
+    onSend(text, currentSelection, sentImages, sentFiles);
   }
 
   // ─── Mentions (`@` or `[[`: link a vault file; its content goes along) ──
@@ -595,8 +606,8 @@
 
   function saveEdit(msg: ChatMessage): void {
     const text = editText.trim();
-    // Images no longer saved aren't sent again (chat-view.ts editMessage).
-    if (!msg.turnId || (!text && !msg.images?.some((image) => image.data))) return;
+    // Images and files no longer saved aren't sent again (chat-view.ts editMessage).
+    if (!msg.turnId || (!text && !msg.images?.some((image) => image.data) && !msg.attached?.some((file) => file.data || file.text))) return;
     editingId = null;
     onEdit(msg.turnId, text);
   }
@@ -657,17 +668,37 @@
     if (!(input instanceof HTMLInputElement)) return;
     const files = Array.from(input.files ?? []);
     input.value = "";
-    await addImageFiles(files);
+    await addFiles(files);
   }
 
   function handlePaste(event: ClipboardEvent): void {
     const files = Array.from(event.clipboardData?.items ?? [])
-      .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+      .filter((item) => item.kind === "file")
       .map((item) => item.getAsFile())
       .filter((file): file is File => file !== null);
     if (files.length === 0) return;
     event.preventDefault();
-    void addImageFiles(files);
+    void addFiles(files);
+  }
+
+  /** Images to the images, everything else as a file (PDF, Office, text). */
+  async function addFiles(files: File[]): Promise<void> {
+    // By type, or by name when the picker gives no type.
+    const isImage = (file: File) => file.type.startsWith("image/") || inferImageMimeType(file.name) !== "";
+    await addImageFiles(files.filter(isImage));
+    for (const file of files.filter((file) => !isImage(file))) {
+      if (fileAttachments.length >= MAX_FILE_COUNT) {
+        new Notice(`Attach up to ${MAX_FILE_COUNT} files per message.`);
+        return;
+      }
+      const attachment = await fileAttachment(file.name, await file.arrayBuffer());
+      if (typeof attachment === "string") new Notice(attachment);
+      else fileAttachments = [...fileAttachments, attachment];
+    }
+  }
+
+  function removeFile(id: string): void {
+    fileAttachments = fileAttachments.filter((file) => file.id !== id);
   }
 
   async function addImageFiles(files: File[]): Promise<void> {
@@ -855,6 +886,18 @@
   </details>
 {/snippet}
 
+<!-- A user message's attached files, by name. -->
+{#snippet fileChips(files: FileAttachment[])}
+  <div class="ochatting-user-images">
+    {#each files as file (file.id)}
+      <span class="ochatting-image-chip" title={`${file.fileName}, ${formatBytes(file.sizeBytes)}`}>
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"></path><path d="M14 2v6h6"></path></svg>
+        <span>{file.fileName}</span>
+      </span>
+    {/each}
+  </div>
+{/snippet}
+
 <div class="ochatting-container">
   <!-- Header -->
   <div class="ochatting-header">
@@ -986,8 +1029,11 @@
               {#if msg.images?.length}
                 {@render userImages(msg.images)}
               {/if}
-              {#if msg.images?.some((image) => !image.data)}
-                <div class="ochatting-edit-note">Images no longer saved are left out.</div>
+              {#if msg.attached?.length}
+                {@render fileChips(msg.attached)}
+              {/if}
+              {#if msg.images?.some((image) => !image.data) || msg.attached?.some((file) => !file.data && !file.text)}
+                <div class="ochatting-edit-note">Attachments no longer saved are left out.</div>
               {/if}
               {#if msg.selection}
                 <div class="ochatting-edit-note">Selection from {msg.selection.filePath.split("/").pop()}</div>
@@ -1017,6 +1063,9 @@
             <div class="ochatting-msg ochatting-user-msg">
               {#if msg.images?.length}
                 {@render userImages(msg.images)}
+              {/if}
+              {#if msg.attached?.length}
+                {@render fileChips(msg.attached)}
               {/if}
               {#if msg.text}
                 <div class="ochatting-msg-content">{msg.text}</div>
@@ -1196,8 +1245,23 @@
     </div>
   {/if}
 
-  {#if attachments.length > 0}
-    <div class="ochatting-attachment-tray" aria-label="Image attachments">
+  {#if attachments.length > 0 || fileAttachments.length > 0}
+    <div class="ochatting-attachment-tray" aria-label="Attachments">
+      {#each fileAttachments as file (file.id)}
+        <div class="ochatting-attachment-preview">
+          <span class="ochatting-attachment-icon" aria-hidden="true">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"></path><path d="M14 2v6h6"></path></svg>
+          </span>
+          <span title={`${file.fileName}, ${formatBytes(file.sizeBytes)}`}>{file.fileName}</span>
+          <button
+            class="ochatting-attachment-remove"
+            type="button"
+            onclick={() => removeFile(file.id)}
+            disabled={!inputEnabled}
+            aria-label={`Remove ${file.fileName}`}
+          >×</button>
+        </div>
+      {/each}
       {#each attachments as image (image.id)}
         <div class="ochatting-attachment-preview">
           <img src={imageDataUrl(image)} alt={image.fileName} />
@@ -1240,20 +1304,21 @@
       bind:this={fileInputEl}
       class="ochatting-file-input"
       type="file"
-      accept="image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif"
+      accept={`image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,${ACCEPTED_FILES}`}
       multiple
       onchange={handleImageSelection}
-      aria-label="Choose images"
+      aria-label="Choose images or files"
     />
     <button
       class="ochatting-attach-btn"
       type="button"
       onclick={openImagePicker}
-      disabled={!inputEnabled || attachments.length >= MAX_IMAGE_COUNT}
-      aria-label="Attach images"
-      title="Attach images"
+      disabled={!inputEnabled || (attachments.length >= MAX_IMAGE_COUNT && fileAttachments.length >= MAX_FILE_COUNT)}
+      aria-label="Attach images or files"
+      title="Attach images or files"
     >
-      <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+      <!-- A paperclip: images, PDFs, Office and text files -->
+      <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
     </button>
     <textarea
       class="ochatting-input"
@@ -2100,6 +2165,18 @@
     border: 1px solid var(--background-modifier-border);
     border-radius: var(--radius-s);
     background: var(--background-secondary);
+  }
+
+  .ochatting-attachment-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    flex-shrink: 0;
+    border-radius: 4px;
+    background: var(--background-modifier-hover);
+    color: var(--text-muted);
   }
 
   .ochatting-attachment-preview img {
