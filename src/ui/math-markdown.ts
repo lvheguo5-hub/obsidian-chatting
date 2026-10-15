@@ -7,7 +7,7 @@
 const FENCE_OPEN = /^( {0,3})(`{3,}|~{3,})(.*)$/;
 const MATH_INFO = /^\s*(?:math|latex|tex)\s*$/i;
 // Inline code spans: a backtick run closed by a run of the same length.
-const CODE_SPAN = /(`+)[^\n]*?\1(?!`)/g;
+const CODE_SPAN = /(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g;
 // An escaped backslash is matched first, so `\\[` or `\\(` (e.g. a LaTeX
 // line break like `\\[2pt]`) is never taken for an opening delimiter.
 const DISPLAY = /\\\\|\\\[([\s\S]*?)\\\]/g;

@@ -1,0 +1,7 @@
+{
+  "provider": "chatgpt-oauth",
+  "model": "gpt-6.1-sol",
+  "thinkingLevel": "low",
+  "matched": true,
+  "errors": []
+}

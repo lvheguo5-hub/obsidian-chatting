@@ -11,8 +11,8 @@ export interface ModelOption {
   defaultReasoningEffort?: string;
   supportsReasoningSummary?: boolean;
   supportsParallelTools?: boolean;
-  /** Anthropic thinking mode the model supports (`capabilities.thinking.types`). */
-  thinkingType?: "adaptive" | "enabled";
+  /** Anthropic thinking mode; disabled is explicit negative metadata, undefined is unknown. */
+  thinkingType?: "adaptive" | "enabled" | "disabled";
 }
 export interface CatalogEntry {
   identity: string;
@@ -50,7 +50,7 @@ export function normalizeCatalogState(value: unknown): CatalogState {
           defaultReasoningEffort: typeof m.defaultReasoningEffort === "string" ? m.defaultReasoningEffort : undefined,
           supportsReasoningSummary: typeof m.supportsReasoningSummary === "boolean" ? m.supportsReasoningSummary : undefined,
           supportsParallelTools: typeof m.supportsParallelTools === "boolean" ? m.supportsParallelTools : undefined,
-          thinkingType: m.thinkingType === "adaptive" || m.thinkingType === "enabled" ? m.thinkingType : undefined }));
+          thinkingType: m.thinkingType === "adaptive" || m.thinkingType === "enabled" || m.thinkingType === "disabled" ? m.thinkingType : undefined }));
       state.entries.push({ identity: entry.identity, provider: entry.provider as Provider, fetchedAt: entry.fetchedAt, models });
     }
   }
@@ -151,7 +151,8 @@ function anthropicCapabilities(capabilities: unknown): Pick<ModelOption, "thinki
   if (!record(capabilities)) return {};
   const types = record(capabilities.thinking) && record(capabilities.thinking.types) ? capabilities.thinking.types : {};
   const supported = (value: unknown) => record(value) && value.supported === true;
-  const thinkingType = supported(types.adaptive) ? "adaptive" : supported(types.enabled) ? "enabled" : undefined;
+  const thinkingType = supported(types.adaptive) ? "adaptive" : supported(types.enabled) ? "enabled" :
+    record(capabilities.thinking) && capabilities.thinking.supported === false ? "disabled" : undefined;
   const effort = capabilities.effort;
   // Levels in the API's key order (lightest first); "supported" is the flag for effort as a whole.
   const reasoningEfforts = record(effort) && effort.supported === true

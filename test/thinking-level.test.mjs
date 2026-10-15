@@ -26,9 +26,9 @@ test('Anthropic catalog: the thinking mode comes from /v1/models capabilities an
   ] } });
   const state = { entries: [] };
   const models = await api.refreshCatalog(state, 'anthropic', identity, 'capabilities', {}, true);
-  assert.deepEqual(models.map(m => m.thinkingType), ['adaptive', 'enabled', undefined, undefined]);
+  assert.deepEqual(models.map(m => m.thinkingType), ['adaptive', 'enabled', 'disabled', undefined]);
   const restored = api.normalizeCatalogState(JSON.parse(JSON.stringify(state)));
-  assert.deepEqual(restored.entries[0].models.map(m => m.thinkingType), ['adaptive', 'enabled', undefined, undefined]);
+  assert.deepEqual(restored.entries[0].models.map(m => m.thinkingType), ['adaptive', 'enabled', 'disabled', undefined]);
 });
 
 const anthropicModels = [
@@ -253,4 +253,19 @@ test('Settings: the connection Test asks with the lightest listed level; the set
   } finally {
     globalThis.window = previousWindow;
   }
+});
+
+
+test('Anthropic explicit unsupported thinking overrides a thinking-capable model name after reload', async () => {
+  const identity = await api.catalogIdentity('anthropic', 'fake-test-key');
+  globalThis.__providerRequest = async () => ({ status: 200, json: { data: [
+    { type: 'model', id: 'claude-opus-4-7', capabilities: { thinking: { supported: false } } },
+  ] } });
+  const state = { entries: [] };
+  await api.refreshCatalog(state, 'anthropic', identity, 'fake-test-key', {}, true);
+  const modelCatalog = api.normalizeCatalogState(JSON.parse(JSON.stringify(state)));
+  const requests = transport(() => response('anthropic', [text('ok')]));
+  await api.sendAnthropicMessage({ ...settings('anthropic'), model: 'claude-opus-4-7', modelCatalog },
+    [{ role: 'user', content: 'hello' }], [], 'system');
+  assert.equal(requests[0].thinking, undefined);
 });

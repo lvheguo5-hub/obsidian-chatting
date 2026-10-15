@@ -61,3 +61,9 @@ test('a [[link|alias]] in a table row gets its pipe escaped; elsewhere, escaped 
   assert.equal(normalize('| `[[A|a]]` |'), '| `[[A|a]]` |');
   assert.equal(normalize('```\n| [[A|a]] |\n```'), '```\n| [[A|a]] |\n```');
 });
+
+
+test('multiline code spans and unequal backtick runs preserve literal math', () => {
+  const source = 'Use ``line one\\n\\(literal\\) with ` inside`` then \\(x\\)'.replace('\\n', '\n');
+  assert.equal(normalize(source), source.replace('then \\(x\\)', 'then $x$'));
+});
