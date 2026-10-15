@@ -24,6 +24,7 @@ export const bundled = await build({
     export { ChatGPTDeviceLoginModal } from './src/settings';
     export { selectionScope } from './src/main';
     export { normalizeMathMarkdown } from './src/ui/math-markdown';
+    export * as toolLabels from './src/ui/tool-label';
   `, resolveDir: process.cwd(), loader: 'ts' },
   bundle: true, write: false, platform: 'node', format: 'esm',
   plugins: [{ name: 'obsidian-test-transport', setup(build) {

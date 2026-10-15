@@ -3,6 +3,7 @@
   import { Component as ObsidianComponent, MarkdownRenderer, Notice } from "obsidian";
   import type { ToolResult, SelectionScope, ImageAttachment } from "../types";
   import { normalizeMathMarkdown } from "./math-markdown";
+  import { toolLabel } from "./tool-label";
 
   const MAX_IMAGE_COUNT = 4;
   const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -432,10 +433,6 @@
     };
   }
 
-  function formatToolName(name: string): string {
-    return name.replace(/_/g, " ");
-  }
-
   function truncate(str: string, max: number): string {
     if (str.length <= max) return str;
     return str.substring(0, max) + "\n... (truncated)";
@@ -475,37 +472,32 @@
           <div class="ochatting-msg-content" use:markdown={msg.text ?? ""}></div>
         </div>
 
-      {:else if msg.type === "tool-call"}
-        <div class="ochatting-tool-call">
-          <div class="ochatting-tool-status">
-            <span class="ochatting-spinner"></span>
-            <span class="ochatting-tool-name">{formatToolName(msg.toolName ?? "")}</span>
-          </div>
-          <details class="ochatting-tool-details">
-            <summary>Parameters</summary>
-            <pre class="ochatting-tool-json">{JSON.stringify(msg.toolInput, null, 2)}</pre>
-          </details>
-        </div>
-
-      {:else if msg.type === "tool-result"}
-        <div class="ochatting-tool-call">
-          <div class="ochatting-tool-status">
-            <span class={msg.toolResult?.isError ? "ochatting-tool-error" : "ochatting-tool-success"}>
-              {msg.toolResult?.isError ? "\u2718" : "\u2714"}
-            </span>
-            <span class="ochatting-tool-name">{formatToolName(msg.toolName ?? "")}</span>
-          </div>
-          {#if msg.toolInput && Object.keys(msg.toolInput).length > 0}
-            <details class="ochatting-tool-details">
-              <summary>Parameters</summary>
+      {:else if msg.type === "tool-call" || msg.type === "tool-result"}
+        {@const state = msg.type === "tool-call" ? "running" : msg.toolResult?.isError ? "error" : "done"}
+        <!-- One line per tool step ("Edited Plan"); parameters and result open on click -->
+        <details class="ochatting-tool" class:is-error={state === "error"}>
+          <summary class="ochatting-tool-row">
+            {#if state === "running"}
+              <span class="ochatting-spinner"></span>
+            {:else if state === "error"}
+              <svg class="ochatting-tool-icon" aria-label="Failed" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+            {:else}
+              <svg class="ochatting-tool-icon" aria-label="Done" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>
+            {/if}
+            <span class="ochatting-tool-label">{toolLabel(msg.toolName ?? "", msg.toolInput ?? {}, state)}</span>
+            <span class="ochatting-tool-chevron" aria-hidden="true"></span>
+          </summary>
+          <div class="ochatting-tool-body">
+            {#if msg.toolInput && Object.keys(msg.toolInput).length > 0}
+              <div class="ochatting-tool-section">Parameters</div>
               <pre class="ochatting-tool-json">{truncate(JSON.stringify(msg.toolInput, null, 2), 2000)}</pre>
-            </details>
-          {/if}
-          <details class="ochatting-tool-details">
-            <summary>{msg.toolResult?.isError ? "Error" : "Result"}</summary>
-            <pre class="ochatting-tool-json">{truncate(msg.toolResult?.result ?? "", 2000)}</pre>
-          </details>
-        </div>
+            {/if}
+            {#if msg.toolResult}
+              <div class="ochatting-tool-section">{state === "error" ? "Error" : "Result"}</div>
+              <pre class="ochatting-tool-json">{truncate(msg.toolResult.result ?? "", 2000)}</pre>
+            {/if}
+          </div>
+        </details>
 
       {:else if msg.type === "error"}
         <div class="ochatting-msg ochatting-error-msg">
@@ -764,42 +756,91 @@
   }
 
   /* ─── Tool Calls ────────────────────────────────────────────────────── */
-  .ochatting-tool-call {
-    align-self: flex-start;
-    padding: 6px 10px;
-    background: var(--background-secondary-alt);
-    border-radius: var(--radius-s);
+  /* A quiet line per tool step; consecutive steps sit close together */
+  .ochatting-tool {
+    align-self: stretch;
+    max-width: 100%;
     font-size: var(--font-ui-smaller);
     color: var(--text-muted);
-    max-width: 90%;
   }
 
-  .ochatting-tool-status {
+  .ochatting-tool + .ochatting-tool {
+    margin-top: -6px;
+  }
+
+  .ochatting-tool-row {
     display: flex;
     align-items: center;
     gap: 6px;
+    min-width: 0;
+    padding: 2px 4px;
+    border-radius: var(--radius-s);
+    cursor: pointer;
+    list-style: none;
   }
 
-  .ochatting-tool-name {
-    font-weight: 500;
+  .ochatting-tool-row::-webkit-details-marker {
+    display: none;
   }
 
-  .ochatting-tool-success {
-    color: var(--text-success);
+  .ochatting-tool-row:hover {
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
   }
 
-  .ochatting-tool-error {
+  .ochatting-tool-icon,
+  .ochatting-tool-row .ochatting-spinner {
+    flex-shrink: 0;
+    color: var(--text-faint);
+  }
+
+  .ochatting-tool-row .ochatting-spinner {
+    width: 10px;
+    height: 10px;
+    border-width: 1.5px;
+  }
+
+  .ochatting-tool.is-error .ochatting-tool-icon,
+  .ochatting-tool.is-error .ochatting-tool-label {
     color: var(--text-error);
   }
 
-  .ochatting-tool-details {
-    margin-top: 4px;
+  .ochatting-tool-label {
+    flex: 0 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
-  .ochatting-tool-details summary {
-    cursor: pointer;
+  /* A small chevron after the label, turned down when open */
+  .ochatting-tool-chevron {
+    flex-shrink: 0;
+    width: 6px;
+    height: 6px;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: rotate(-45deg);
+    opacity: 0;
+    transition: transform 150ms ease, opacity 150ms ease;
+  }
+
+  .ochatting-tool-row:hover .ochatting-tool-chevron,
+  .ochatting-tool[open] .ochatting-tool-chevron {
+    opacity: 0.7;
+  }
+
+  .ochatting-tool[open] .ochatting-tool-chevron {
+    transform: rotate(45deg);
+  }
+
+  .ochatting-tool-body {
+    margin: 2px 0 6px 22px;
+  }
+
+  .ochatting-tool-section {
+    margin-top: 4px;
     color: var(--text-faint);
-    font-size: var(--font-ui-smaller);
   }
 
   .ochatting-tool-json {
