@@ -13,7 +13,6 @@ const CODE_SPAN = /(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g;
 const DISPLAY = /\\\\|\\\[([\s\S]*?)\\\]/g;
 const INLINE = /\\\\|\\\(([^\n]*?)\\\)/g;
 // A table row, and the unescaped alias pipe of a wiki link in it.
-const TABLE_ROW = /^[ \t]*\|.*$/gm;
 const LINK_ALIAS = /(\[\[[^\]|\n]*[^\]|\\\n])\|([^\]\n]*\]\])/g;
 
 export function normalizeMathMarkdown(source: string): string {
@@ -21,12 +20,30 @@ export function normalizeMathMarkdown(source: string): string {
   const lines = source.split(/\r?\n/);
   const out: string[] = [];
   let prose: string[] = [];
+  const listIndents: number[] = [];
   const flushProse = () => {
     if (prose.length > 0) out.push(normalizeProse(prose.join("\n")));
     prose = [];
   };
 
   for (let i = 0; i < lines.length; i++) {
+    const indentation = indentWidth(lines[i]);
+    if (lines[i].trim()) {
+      while (listIndents.length && indentation < listIndents[listIndents.length - 1]) listIndents.pop();
+    }
+    const codeIndent = (listIndents.at(-1) ?? 0) + 4;
+    // Indented code cannot interrupt a paragraph. A list item's own content
+    // indentation is not code; it needs another four columns.
+    if (lines[i].trim() && indentation >= codeIndent && (i === 0 || !lines[i - 1].trim())) {
+      flushProse();
+      let end = i + 1;
+      while (end < lines.length && (!lines[end].trim() || indentWidth(lines[end]) >= codeIndent)) end++;
+      out.push(...lines.slice(i, end));
+      i = end - 1;
+      continue;
+    }
+    const list = /^[ \t]*(?:[-+*]|\d+[.)])[ \t]+/.exec(lines[i]);
+    if (list) listIndents.push(indentWidth(list[0].replace(/[^ \t]/g, " ")));
     const open = FENCE_OPEN.exec(lines[i]);
     // A backtick fence's info string can't contain backticks (CommonMark).
     if (!open || (open[2][0] === "`" && open[3].includes("`"))) {
@@ -53,25 +70,63 @@ export function normalizeMathMarkdown(source: string): string {
   return out.join("\n");
 }
 
+function indentWidth(line: string): number {
+  let width = 0;
+  for (const char of line) {
+    if (char === " ") width++;
+    else if (char === "\t") width += 4 - width % 4;
+    else break;
+  }
+  return width;
+}
+
 function closesFence(line: string, fence: string): boolean {
   const close = /^ {0,3}(`{3,}|~{3,})\s*$/.exec(line);
   return close !== null && close[1][0] === fence[0] && close[1].length >= fence.length;
 }
 
 function normalizeProse(text: string): string {
+  const tableRows = tableRowStarts(text);
   let result = "";
   let cursor = 0;
   for (const span of text.matchAll(CODE_SPAN)) {
     const index = span.index ?? 0;
-    result += normalizeDelimiters(text.slice(cursor, index)) + span[0];
+    result += normalizeDelimiters(text.slice(cursor, index), cursor, tableRows, text) + span[0];
     cursor = index + span[0].length;
   }
-  return result + normalizeDelimiters(text.slice(cursor));
+  return result + normalizeDelimiters(text.slice(cursor), cursor, tableRows, text);
 }
 
-function normalizeDelimiters(text: string): string {
+function tableRowStarts(text: string): Set<number> {
+  const lines = text.split("\n");
+  const starts: number[] = [];
+  const rows = new Set<number>();
+  let offset = 0;
+  let inTable = false;
+  for (let i = 0; i < lines.length; i++) {
+    starts.push(offset);
+    const line = lines[i];
+    if (!line.trim()) inTable = false;
+    // Recognize a real delimiter row for tables without outer pipes. Ignore
+    // pipes inside wiki links, escaped text and inline code when counting cells.
+    const cells = (value: string) => value.replace(CODE_SPAN, "").replace(/\[\[[^\n]*?\]\]/g, "")
+      .replace(/\\\|/g, "").trim().replace(/^\||\|$/g, "").split("|");
+    const columns = cells(line);
+    if (i > 0 && line.includes("|") && columns.every(cell => /^\s*:?-+:?\s*$/.test(cell))
+      && lines[i - 1].trim() && cells(lines[i - 1]).length === columns.length) {
+      inTable = true;
+      rows.add(starts[i - 1]);
+    }
+    if (inTable || /^[ \t]*\|/.test(line)) rows.add(offset);
+    offset += line.length + 1;
+  }
+  return rows;
+}
+
+function normalizeDelimiters(text: string, offset: number, tableRows: Set<number>, source: string): string {
   return text
-    .replace(TABLE_ROW, (row) => row.replace(LINK_ALIAS, "$1\\|$2"))
+    .replace(LINK_ALIAS, (match, before: string, after: string, index: number) =>
+      tableRows.has(source.lastIndexOf("\n", offset + index) + 1) ? `${before}\\|${after}` : match)
     // Display math keeps its own spacing and line breaks, so a block written
     // on its own lines stays a block (also inside list items).
     .replace(DISPLAY, (match, expression: string | undefined) =>

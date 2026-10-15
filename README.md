@@ -23,7 +23,7 @@
 
 - **Three providers, your choice** — Anthropic API, OpenAI API, or sign in with your ChatGPT account. No marketplace of half-broken providers.
 - **14 vault-native tools** — read, edit, search, create, rename, frontmatter, backlinks. The agent goes from idea to changed files without leaving the chat.
-- **Mobile-parity, by design** — no streaming, no Node-only modules, no localhost callbacks. iOS and Android behave the same as desktop.
+- **Mobile-first chat** — requests use Obsidian’s mobile-compatible transport. Desktop offers browser sign-in; mobile uses device-code sign-in.
 - **Selection scope** — highlight text in any note, send it to chat, the assistant edits only inside the selection.
 - **Secrets in the OS keychain** — never in `data.json`, never synced across devices.
 
@@ -80,6 +80,8 @@ The agent uses find-and-replace scoped to the selection text, and the tools enfo
 Attach up to four images to a message, including by pasting an image from the clipboard. Images are sent with that message to the selected provider; large photos are resized before sending.
 
 > **About ChatGPT account login.** This provider signs you in with your ChatGPT account and routes requests through the ChatGPT/Codex backend (not `api.openai.com`). It requires an active ChatGPT plan with Codex access. The model picker fetches the Codex catalog for your account; account permissions still determine whether a model can be used.
+
+Desktop ChatGPT login opens your browser and returns automatically through a local callback. Device-code login remains available on desktop and is the current mobile login method. Sign-in credentials are stored per device; syncing a vault does not sign in another device.
 
 ### Model list updates
 
@@ -153,7 +155,7 @@ ln -s "$(pwd)" /path/to/vault/.obsidian/plugins/chatting-with-ai
 
 | Principle | What it means |
 |---|---|
-| **Mobile is not an afterthought** | Every change is validated on iOS and Android. No streaming, no Node-only modules, no localhost callbacks. |
+| **Mobile is not an afterthought** | Chat and vault tools support mobile without Node modules. See the recorded desktop and physical iPhone QA coverage in `docs/phase1-review.md`. |
 | **Three sane providers** | Anthropic + OpenAI for stability, ChatGPT account for users who'd rather not manage an API key. |
 | **Secrets in the keychain** | API keys and OAuth credentials go through Obsidian SecretStorage. They never land in `data.json`, so they never sync to other devices. |
 | **No vault indexing** | Linear search, capped. Predictable, no background work, no memory pressure on phones. |

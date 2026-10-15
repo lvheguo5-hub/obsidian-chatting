@@ -23,7 +23,7 @@
 
 - **3 つのプロバイダから選べる** —— Anthropic API、OpenAI API、または ChatGPT アカウントでサインイン。中途半端なプロバイダのバザールはやりません。
 - **14 個の vault ネイティブツール** —— 読み・編集・検索・作成・リネーム・frontmatter・backlinks。アイデアからファイル変更まで、チャットを離れずに完結します。
-- **モバイル妥協なし、設計から** —— streaming・Node 専用モジュール・localhost コールバックに依存しません。iOS と Android はデスクトップと同じ動作。
+- **モバイル妥協なし、設計から** —— チャットとノート操作はモバイル対応の通信を使用。デスクトップはブラウザログイン、モバイルはデバイスコードログインに対応。
 - **選択範囲スコープ** —— ノートのテキストを選択して送ると、アシスタントは選択範囲内だけを編集。
 - **シークレットは OS のキーチェーンへ** —— `data.json` には絶対に書き込まれず、他端末に同期もされません。
 
@@ -141,7 +141,7 @@ ln -s "$(pwd)" /path/to/vault/.obsidian/plugins/chatting-with-ai
 
 | 原則 | 意味 |
 |---|---|
-| **モバイルは後付けではない** | すべての変更を iOS と Android で検証。streaming・Node 専用モジュール・localhost コールバックに依存しません。 |
+| **モバイルは後付けではない** | モバイルのチャットとノート操作は Node モジュール不要。検証済みのデスクトップ・iPhone の範囲は `docs/phase1-review.md` を参照。 |
 | **3 つの堅実なプロバイダ** | Anthropic + OpenAI で安定性、ChatGPT アカウントで API キー不要派をカバー。 |
 | **シークレットはキーチェーンへ** | API キーと OAuth 認証情報は Obsidian SecretStorage 経由。`data.json` には入らないため、他の端末に同期もされません。 |
 | **Vault のインデックス化は行わない** | 上限つきの線形検索のみ。予測可能で、バックグラウンドジョブなし、モバイルでもメモリを圧迫しません。 |
@@ -173,7 +173,7 @@ ln -s "$(pwd)" /path/to/vault/.obsidian/plugins/chatting-with-ai
 <details>
 <summary><b>本当にモバイルで動きますか?</b></summary>
 
-はい —— その制約こそが他のすべての設計の起点です。リクエストは Obsidian の `requestUrl()` を通り(モバイル WebView は CORS を強制)、streaming も Node 専用モジュールも、OAuth の localhost コールバックも使いません。iOS と Android はデスクトップと同一のコードパスで動きます。
+はい。通信には Obsidian の `requestUrl()` を使用し、モバイルでは Node モジュールを読み込みません。ChatGPT はデスクトップでブラウザログイン、モバイルではデバイスコードログインを使用します。認証情報は端末ごとに保存され、保管庫の同期ではログイン状態は転送されません。
 
 </details>
 

@@ -67,3 +67,31 @@ test('multiline code spans and unequal backtick runs preserve literal math', () 
   const source = 'Use ``line one\\n\\(literal\\) with ` inside`` then \\(x\\)'.replace('\\n', '\n');
   assert.equal(normalize(source), source.replace('then \\(x\\)', 'then $x$'));
 });
+
+test('indented code blocks preserve literal delimiters, fences and links', () => {
+  for (const indent of ['    ', '\t']) {
+    const source = `Example:\n\n${indent}\\(literal\\)\n\n${indent}\\[literal\\]\n${indent}| [[A|a]] |\n${indent}\x60\x60\x60math\n${indent}x\n${indent}\x60\x60\x60\n\nThen \\(x\\).`;
+    assert.equal(normalize(source), source.replace('Then \\(x\\)', 'Then $x$'));
+    assert.equal(normalize(`${indent}\\(literal\\)`), `${indent}\\(literal\\)`);
+  }
+});
+
+test('indentation does not interrupt an existing paragraph', () => {
+  assert.equal(normalize('Paragraph\n    \\(x\\)'), 'Paragraph\n    $x$');
+});
+
+test('list continuation indentation stays prose; nested indented code stays literal', () => {
+  assert.equal(normalize('- item\n\n    \\(x\\)'), '- item\n\n    $x$');
+  assert.equal(normalize('- item\n\n      \\(literal\\)'), '- item\n\n      \\(literal\\)');
+  assert.equal(normalize('- parent\n  - child\n\n        \\(literal\\)\n\n  \\(x\\)'), '- parent\n  - child\n\n        \\(literal\\)\n\n  $x$');
+});
+
+test('pipe-less tables escape wiki aliases including rows with inline code', () => {
+  const source = 'Name | Link\n--- | ---\nAda | [[People/Ada|Profile]]\n`Bob` | [[People/Bob|Profile]]\n\nSee [[A|a]] here.';
+  assert.equal(normalize(source), source.replaceAll('People/Ada|', 'People/Ada\\|').replaceAll('People/Bob|', 'People/Bob\\|'));
+});
+
+test('a wiki alias alone does not turn prose into a table', () => {
+  const source = 'See [[A|a]] here.\nNot a table | [[B|b]]\nStill prose.';
+  assert.equal(normalize(source), source);
+});
