@@ -184,6 +184,7 @@ export default class ChatPlugin extends Plugin {
   }
 
   onunload(): void {
+    this.chatgptOAuth?.cancelBrowserLogin();
     this.agent?.abort();
     void this.saveChatHistory();
     this.unloaded = true;

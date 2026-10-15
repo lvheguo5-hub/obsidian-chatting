@@ -1,7 +1,8 @@
-import { App, Modal, Notice, PluginSettingTab, Setting, requireApiVersion, type SettingDefinitionItem } from "obsidian";
+import { App, Modal, Notice, Platform, PluginSettingTab, Setting, requireApiVersion, type SettingDefinitionItem } from "obsidian";
 import type ChatPlugin from "./main";
 import type { ChatSettings, Provider } from "./types";
 import { DEFAULT_PROVIDER_MODELS } from "./types";
+import type { BrowserLogin } from "./auth/chatgptBrowserLogin";
 import type { ChatGPTDeviceAuthorization, PollHandle } from "./auth/chatgptOAuth";
 
 import { type ModelOption, type CatalogState, catalogIdentity, cachedCatalog, refreshCatalog, getCatalogModels, clearCatalogModels, catalogModel, catalogDefaultLevel, resolveThinkingLevel, thinkingLevelLabel, CATALOG_TTL } from "./api/model-catalog";
@@ -331,27 +332,51 @@ export class ChatSettingTab extends PluginSettingTab {
           })
         );
     } else {
-      (row ?? new Setting(containerEl))
+      const loginRow = (row ?? new Setting(containerEl))
         .setName("ChatGPT account")
-        .setDesc("Not connected. Sign in with ChatGPT to use this provider.")
+        .setDesc(Platform.isDesktop
+          ? "Sign in in your browser. A device code is also available if browser login cannot connect."
+          : "Sign in with a one-time device code, then return to Obsidian to finish connecting.")
         .addButton((button) =>
           button
-            .setButtonText("Connect ChatGPT")
+            .setButtonText(Platform.isDesktop ? "Sign in with ChatGPT" : "Connect ChatGPT")
             .setCta()
             .onClick(async () => {
+              button.setDisabled(true);
               try {
-                const auth = await this.plugin.chatgptOAuth.beginDeviceAuthorization();
-                const handle = this.plugin.chatgptOAuth.pollDeviceAuthorization(auth);
-                const modal = new ChatGPTDeviceLoginModal(this.app, auth, handle, () => {
-                  this.refreshSettingsTab();
-                });
-                modal.open();
+                if (Platform.isDesktop) {
+                  const login = await this.plugin.chatgptOAuth.beginBrowserAuthorization();
+                  const modal = new ChatGPTBrowserLoginModal(this.app, login, () => this.refreshSettingsTab());
+                  modal.open();
+                  window.open(login.authUrl, "_blank");
+                } else {
+                  await this.startDeviceLogin();
+                }
               } catch (e) {
-                const msg = e instanceof Error ? e.message : String(e);
-                new Notice(`Failed to start ChatGPT login: ${msg}`);
+                new Notice(e instanceof Error ? e.message : "Failed to start ChatGPT login.");
+              } finally {
+                button.setDisabled(false);
               }
             })
         );
+      if (Platform.isDesktop) loginRow.addButton((button) =>
+        button.setButtonText("Use device code").onClick(async () => {
+          button.setDisabled(true);
+          try { await this.startDeviceLogin(); }
+          finally { button.setDisabled(false); }
+        })
+      );
+    }
+  }
+
+  private async startDeviceLogin(): Promise<void> {
+    try {
+      this.plugin.chatgptOAuth.cancelBrowserLogin();
+      const auth = await this.plugin.chatgptOAuth.beginDeviceAuthorization();
+      const handle = this.plugin.chatgptOAuth.pollDeviceAuthorization(auth);
+      new ChatGPTDeviceLoginModal(this.app, auth, handle, () => this.refreshSettingsTab()).open();
+    } catch (e) {
+      new Notice(e instanceof Error ? e.message : "Failed to start ChatGPT login.");
     }
   }
 
@@ -551,7 +576,7 @@ export class ChatGPTDeviceLoginModal extends Modal {
     new Setting(contentEl).setName("Connect ChatGPT").setHeading();
 
     contentEl.createEl("p", {
-      text: "1. Open this page in any browser:",
+      text: "Open the login page, sign in, and paste the one-time code below:",
     });
     const linkRow = contentEl.createDiv({ cls: "ochatting-device-link-row" });
     const link = linkRow.createEl("a", {
@@ -561,7 +586,7 @@ export class ChatGPTDeviceLoginModal extends Modal {
     link.setAttr("target", "_blank");
     link.setAttr("rel", "noopener");
 
-    contentEl.createEl("p", { text: "2. Enter this code on the page:" });
+    contentEl.createEl("p", { text: "Your code (expires after 15 minutes):" });
     const codeRow = contentEl.createDiv({ cls: "ochatting-device-code-row" });
 
     codeRow.createEl("code", {
@@ -578,16 +603,26 @@ export class ChatGPTDeviceLoginModal extends Modal {
     });
 
     const status = contentEl.createEl("p", {
-      text: "Waiting for authorization. You can return here after signing in.",
+      text: "Waiting for authorization. Return to Obsidian after approving the login; connecting will finish automatically.",
       cls: "ochatting-device-status",
     });
 
+    contentEl.createEl("p", { text: "If device-code login is unavailable, enable it in your ChatGPT security settings or ask your workspace admin." });
+
     const buttons = contentEl.createDiv({ cls: "ochatting-device-buttons" });
 
-    const openBtn = buttons.createEl("button", { text: "Open login page" });
+    const openBtn = buttons.createEl("button", { text: "Copy code and open login page" });
     openBtn.classList.add("mod-cta");
     openBtn.addEventListener("click", () => {
+      // Open during the gesture: awaiting clipboard first can block the new browser tab.
+      const copied = (async () => { await navigator.clipboard.writeText(this.authorization.userCode); })();
       window.open(this.authorization.verificationUri, "_blank");
+      void copied.then(() => {
+        status.setText("Code copied. Paste it on the login page, approve, then return to Obsidian.");
+      }).catch(() => {
+        status.setText("Could not copy the code. Enter the code shown above on the login page, then return here.");
+        new Notice("Could not copy the code. Enter it manually on the login page.");
+      });
     });
 
     const cancelBtn = buttons.createEl("button", { text: "Cancel" });
@@ -619,6 +654,40 @@ export class ChatGPTDeviceLoginModal extends Modal {
       // If the user closed via Esc or the close button, treat it as cancel.
       this.handle.cancel();
     }
+    this.contentEl.empty();
+  }
+}
+
+/** Desktop browser callback UI. Closing it always releases the local listener. */
+export class ChatGPTBrowserLoginModal extends Modal {
+  private cancelled = false;
+  constructor(app: App, private readonly login: BrowserLogin, private readonly onComplete: () => void) {
+    super(app);
+  }
+  onOpen(): void {
+    const { contentEl } = this;
+    contentEl.empty();
+    new Setting(contentEl).setName("Sign in with ChatGPT").setHeading();
+    const status = contentEl.createEl("p", { text: "Finish signing in in your browser. This window will close when ChatGPT is connected." });
+    const reopen = contentEl.createEl("button", { text: "Open login page again" });
+    reopen.addEventListener("click", () => window.open(this.login.authUrl, "_blank"));
+    const cancel = contentEl.createEl("button", { text: "Cancel" });
+    cancel.addEventListener("click", () => this.close());
+    void this.login.promise.then(() => {
+      if (this.cancelled) return;
+      new Notice("ChatGPT connected.");
+      this.onComplete();
+      this.close();
+    }).catch((error: unknown) => {
+      if (this.cancelled) return;
+      status.setText(error instanceof Error ? error.message : "Login failed. Try again or use a device code.");
+      reopen.disabled = true;
+      cancel.setText("Close");
+    });
+  }
+  onClose(): void {
+    this.cancelled = true;
+    this.login.cancel();
     this.contentEl.empty();
   }
 }

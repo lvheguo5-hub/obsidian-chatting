@@ -1,4 +1,6 @@
-# ChatGPT OAuth — mobile-first plan
+# ChatGPT OAuth — original mobile-first plan
+
+> 2026-10-15 update: desktop now also offers browser OAuth with PKCE and a loopback callback (1455, falling back to 1457). Mobile retains device authorization and adds a combined copy/open action. The v1 scope and design rationale below are historical; browser callbacks remain unavailable in mobile Obsidian. See `docs/chatgpt-login-qa.md` for validation boundaries.
 
 > Context: this repo is downstream of [Obsidian Chat](https://github.com/omarshahine/obsidian-chat). Upstream ships two providers (Anthropic, OpenAI) with API-key auth and an explicit non-streaming, mobile-first design. This document plans an additional **experimental** provider that lets the user authenticate with their ChatGPT account instead of supplying an OpenAI API key.
 
