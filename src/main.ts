@@ -11,12 +11,12 @@ import {
 import type { ChatSettings, SelectionScope, ImageAttachment } from "./types";
 import { DEFAULT_SETTINGS, DEFAULT_PROVIDER_MODELS } from "./types";
 import { copiesBefore } from "./tools/executor";
-import { ChatSettingTab, getModelDisplayName } from "./settings";
+import { ChatSettingTab, getModelHeaderLabel } from "./settings";
 import { ObsidianChatView, VIEW_TYPE_CHAT } from "./ui/chat-view";
 import { AgentLoop } from "./agent/loop";
 import { ChatGPTOAuthStore } from "./auth/chatgptOAuthStore";
 import { ChatGPTOAuthService } from "./auth/chatgptOAuth";
-import { migrateOAuthModel as migrateChatGPTOAuthModelSlug, normalizeCatalogState } from "./api/model-catalog";
+import { migrateOAuthModel as migrateChatGPTOAuthModelSlug, cachedCatalog, catalogIdentity, normalizeCatalogState } from "./api/model-catalog";
 import { setChatGPTOAuthService } from "./api/chatgpt-oauth";
 
 const PLUGIN_ID = "chatting-with-ai";
@@ -72,6 +72,8 @@ export default class ChatPlugin extends Plugin {
     const oauthStore = new ChatGPTOAuthStore(this.app);
     this.chatgptOAuth = new ChatGPTOAuthService(oauthStore);
     setChatGPTOAuthService(this.chatgptOAuth);
+    // The chat header shows the thinking level from the saved model list.
+    await this.activateModelCatalog();
 
     this.agent = new AgentLoop(this.app, this.settings);
 
@@ -498,10 +500,23 @@ export default class ChatPlugin extends Plugin {
     const toSave = { ...this.settings, apiKey: "" };
     await this.saveData(toSave);
 
-    // Update the chat view header with the new model name
-    this.getChatView()?.updateModel(
-      getModelDisplayName(this.settings.provider, this.settings.model)
-    );
+    // Update the chat view header with the new model name and thinking level
+    this.getChatView()?.updateModel(this.modelHeaderLabel());
+  }
+
+  /** Model name and thinking level, as shown in the chat view header. */
+  modelHeaderLabel(): string {
+    const { provider, model, thinkingLevel } = this.settings;
+    return getModelHeaderLabel(provider, model, thinkingLevel);
+  }
+
+  /** Activate the saved model list of the current provider and account (no network). */
+  private async activateModelCatalog(): Promise<void> {
+    const { provider, apiKey, modelCatalog } = this.settings;
+    const credential = provider === "chatgpt-oauth" ? this.chatgptOAuth.getCredential() : null;
+    const secretIdentity = provider === "chatgpt-oauth" ? credential?.accountId || credential?.accessToken : apiKey;
+    if (!secretIdentity || !modelCatalog) return;
+    cachedCatalog(modelCatalog, provider, await catalogIdentity(provider, secretIdentity));
   }
 
   /** Load the correct API key when provider changes */
@@ -680,6 +695,7 @@ function normalizeSettings(value: unknown): Partial<ChatSettings> {
   if (isProvider(value.provider)) settings.provider = value.provider;
   if (typeof value.apiKey === "string") settings.apiKey = value.apiKey;
   if (typeof value.model === "string") settings.model = value.model;
+  if (typeof value.thinkingLevel === "string") settings.thinkingLevel = value.thinkingLevel;
   // Within the settings field's range, 1 to 100, however data.json was edited;
   // below 1 (0 used to mean the default) keeps the default.
   if (typeof value.maxIterations === "number" && Number.isFinite(value.maxIterations) && value.maxIterations >= 1) {

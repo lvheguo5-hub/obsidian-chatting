@@ -1,10 +1,10 @@
 import { App, Modal, Notice, PluginSettingTab, Setting, requireApiVersion, type SettingDefinitionItem } from "obsidian";
 import type ChatPlugin from "./main";
-import type { Provider } from "./types";
+import type { ChatSettings, Provider } from "./types";
 import { DEFAULT_PROVIDER_MODELS } from "./types";
 import type { ChatGPTDeviceAuthorization, PollHandle } from "./auth/chatgptOAuth";
 
-import { type ModelOption, type CatalogState, catalogIdentity, cachedCatalog, refreshCatalog, getCatalogModels, clearCatalogModels, CATALOG_TTL } from "./api/model-catalog";
+import { type ModelOption, type CatalogState, catalogIdentity, cachedCatalog, refreshCatalog, getCatalogModels, clearCatalogModels, catalogModel, catalogDefaultLevel, resolveThinkingLevel, thinkingLevelLabel, CATALOG_TTL } from "./api/model-catalog";
 
 const CUSTOM_MODEL_OPTION = "__custom__";
 
@@ -34,6 +34,23 @@ export function getModelDisplayName(provider: string, modelId: string): string {
   const models = cached || FALLBACK_MODELS[provider] || [];
   const match = models.find((m) => m.value === modelId);
   return match?.label || modelId;
+}
+
+/** Chat header: the model name, plus the thinking level when the model offers levels. */
+export function getModelHeaderLabel(provider: Provider, modelId: string, level: string): string {
+  const thinking = thinkingLevelLabel(catalogModel(provider, modelId), level);
+  const name = getModelDisplayName(provider, modelId);
+  return thinking ? `${name} · ${thinking}` : name;
+}
+
+/**
+ * Settings for the Test buttons: one word back, as fast as the model allows.
+ * No web search and the lightest thinking level the catalog lists (providers
+ * list them lightest first); the chat settings stay as they are.
+ */
+function connectionTestSettings(settings: ChatSettings): ChatSettings {
+  const efforts = catalogModel(settings.provider, settings.model)?.reasoningEfforts;
+  return { ...settings, enableWebSearch: false, thinkingLevel: efforts?.[0] ?? settings.thinkingLevel };
 }
 
 // ─── Settings Tab ───────────────────────────────────────────────────────────
@@ -78,6 +95,7 @@ export class ChatSettingTab extends PluginSettingTab {
       } },
       // Its own definition: a row added next to another definition's row doesn't show.
       { name: "Custom model ID", visible: () => this.editingCustomModel, render: setting => this.renderCustomModel(setting) },
+      { name: "Thinking level", visible: () => !!this.thinkingOptions(), render: setting => this.renderThinkingLevel(setting) },
       { name: "Web search", render: setting => this.renderWebSearch(setting) },
       { name: "Max tool iterations", render: setting => this.renderMaxIterations(setting) },
     ];
@@ -107,6 +125,7 @@ export class ChatSettingTab extends PluginSettingTab {
     // ─── Model ────────────────────────────────────────────────────────
     this.renderModelSection(containerEl);
     if (this.editingCustomModel) this.renderCustomModel(new Setting(containerEl));
+    if (this.thinkingOptions()) this.renderThinkingLevel(new Setting(containerEl));
     void this.loadCatalog(false);
 
     this.renderWebSearch(new Setting(containerEl));
@@ -133,6 +152,8 @@ export class ChatSettingTab extends PluginSettingTab {
             this.catalogIdentity = "";
             s.provider = value as Provider;
             s.model = DEFAULT_PROVIDER_MODELS[s.provider];
+            // Each provider names its own levels: start from the model's default.
+            s.thinkingLevel = "";
             this.editingCustomModel = false;
             this.plugin.reloadApiKeyForProvider();
             await this.plugin.saveSettings();
@@ -215,9 +236,8 @@ export class ChatSettingTab extends PluginSettingTab {
           button.setDisabled(true);
           try {
             const { sendMessage } = await import("./api/client");
-            // No web search: the test answers quickly, whatever the chat uses.
             const response = await sendMessage(
-              { ...s, enableWebSearch: false },
+              connectionTestSettings(s),
               [{ role: "user", content: "Say hello in one word." }],
               [],
               "You are a test. Respond with one word."
@@ -290,9 +310,8 @@ export class ChatSettingTab extends PluginSettingTab {
             button.setDisabled(true);
             try {
               const { sendMessage } = await import("./api/client");
-              // No web search: the test answers quickly, whatever the chat uses.
               const response = await sendMessage(
-                { ...this.plugin.settings, enableWebSearch: false },
+                connectionTestSettings(this.plugin.settings),
                 [{ role: "user", content: "Say hello in one word." }],
                 [],
                 "You are a test. Respond with one word."
@@ -366,10 +385,12 @@ export class ChatSettingTab extends PluginSettingTab {
             return;
           }
           const wasEditing = this.editingCustomModel;
+          const levels = this.thinkingOptions();
           this.editingCustomModel = false;
           s.model = value;
           await this.plugin.saveSettings();
-          if (wasEditing) window.setTimeout(() => this.refreshSettingsTab(), 10);
+          // The thinking levels on offer depend on the model.
+          if (wasEditing || this.thinkingOptions() !== levels) window.setTimeout(() => this.refreshSettingsTab(), 10);
         });
       });
 
@@ -395,8 +416,10 @@ export class ChatSettingTab extends PluginSettingTab {
         const commit = () => {
           const id = text.getValue().trim();
           if (!id || id === s.model) return;
+          const levels = this.thinkingOptions();
           s.model = id;
           void this.plugin.saveSettings();
+          if (this.thinkingOptions() !== levels) window.setTimeout(() => this.refreshSettingsTab(), 10);
         };
         text.inputEl.addEventListener("change", commit);
         text.inputEl.addEventListener("keydown", (event) => {
@@ -404,6 +427,41 @@ export class ChatSettingTab extends PluginSettingTab {
             event.preventDefault();
             commit();
           }
+        });
+      });
+  }
+
+  // ─── Thinking level ───────────────────────────────────────────────────────
+
+  /** The selected model's catalog entry when it offers thinking levels. */
+  private thinkingOptions(): ModelOption | undefined {
+    const s = this.plugin.settings;
+    const option = this.catalogModels?.find(m => m.value === s.model);
+    return option?.reasoningEfforts?.length ? option : undefined;
+  }
+
+  /** "Default" plus the levels the model catalog lists for the selected model. */
+  private renderThinkingLevel(setting: Setting): void {
+    const s = this.plugin.settings;
+    const option = this.thinkingOptions();
+    if (!option?.reasoningEfforts) return;
+    const efforts = option.reasoningEfforts;
+    const fallback = catalogDefaultLevel(option);
+    setting
+      .setName("Thinking level")
+      .setDesc("How much the model thinks before it answers. The levels come from the provider's model list.")
+      .addDropdown((dropdown) => {
+        dropdown.addOption("", fallback ? `Default (${fallback})` : "Default");
+        for (const effort of efforts) dropdown.addOption(effort, effort);
+        // Keep a saved level this model doesn't offer; requests use the default.
+        if (s.thinkingLevel && !resolveThinkingLevel(option, s.thinkingLevel)) {
+          dropdown.addOption(s.thinkingLevel, `${s.thinkingLevel} (not available)`);
+        }
+        dropdown.setValue(s.thinkingLevel);
+        dropdown.onChange(async (value) => {
+          s.thinkingLevel = value;
+          await this.plugin.saveSettings();
+          this.refreshSettingsTab();
         });
       });
   }

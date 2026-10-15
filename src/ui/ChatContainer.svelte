@@ -648,6 +648,7 @@
     display: flex;
     align-items: baseline;
     gap: 8px;
+    min-width: 0;
   }
 
   .ochatting-header-title {
@@ -659,6 +660,10 @@
   .ochatting-header-model {
     font-size: var(--font-ui-smaller);
     color: var(--text-muted);
+    /* Model name and thinking level can outgrow a phone-width panel */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   /* Clear: a red trash icon (it empties the conversation) */
