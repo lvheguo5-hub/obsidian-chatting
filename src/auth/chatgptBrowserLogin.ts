@@ -1,5 +1,27 @@
 /** Desktop-only loopback OAuth. Loaded only after the platform check. */
-import type { IncomingMessage, ServerResponse } from "node:http";
+import { Platform } from "obsidian";
+
+// Only the small HTTP surface used here; mobile never loads the desktop module.
+interface ServerResponse {
+  writeHead(status: number, headers: Record<string, string>): void;
+  end(text: string): void;
+}
+interface IncomingMessage { url?: string; method?: string; }
+interface CallbackServer {
+  close(): void;
+  closeAllConnections(): void;
+  headersTimeout: number;
+  requestTimeout: number;
+  once(event: string, callback: (...args: never[]) => void): void;
+  off(event: string, callback: (...args: never[]) => void): void;
+  on(event: string, callback: () => void): void;
+  listen(port: number, hostname: string): void;
+}
+interface HttpModule {
+  createServer(callback: (req: IncomingMessage, res: ServerResponse) => void): CallbackServer;
+}
+const base64Url = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes))
+  .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 
 export interface BrowserLogin {
   authUrl: string;
@@ -10,11 +32,17 @@ export interface BrowserLogin {
 export async function startBrowserLogin(
   exchange: (code: string, verifier: string, redirectUri: string, isCancelled: () => boolean) => Promise<void>,
 ): Promise<BrowserLogin> {
-  const { createServer } = require("node:http") as typeof import("node:http");
-  const { randomBytes, createHash } = require("node:crypto") as typeof import("node:crypto");
-  const verifier = randomBytes(32).toString("base64url");
-  const challenge = createHash("sha256").update(verifier).digest("base64url");
-  const state = randomBytes(32).toString("base64url");
+  let http: HttpModule;
+  if (Platform.isDesktop) {
+    // Electron's renderer cannot dynamically import node:http. Load it only here.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    http = require("http") as HttpModule;
+  } else {
+    throw new Error("Use device-code login on mobile.");
+  }
+  const verifier = base64Url(crypto.getRandomValues(new Uint8Array(32)));
+  const challenge = base64Url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
+  const state = base64Url(crypto.getRandomValues(new Uint8Array(32)));
   let cancelled = false;
   let finished = false;
   let exchanging = false;
@@ -23,12 +51,12 @@ export async function startBrowserLogin(
   const promise = new Promise<void>((yes, no) => { resolve = yes; reject = no; });
   // The caller attaches its UI handler after the listener starts.
   void promise.catch(() => {});
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  let timer: number | undefined;
   const finish = (error?: Error) => {
     if (finished) return;
     finished = true;
     if (error) cancelled = true;
-    clearTimeout(timer);
+    window.clearTimeout(timer);
     server.close();
     if (cancelled) server.closeAllConnections();
     if (error) reject(error); else resolve();
@@ -38,7 +66,7 @@ export async function startBrowserLogin(
     res.end(text);
   };
   let redirectUri = "";
-  const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+  const server = http.createServer((req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     if (req.method !== "GET" || url.pathname !== "/auth/callback") {
       reply(res, 404, "Not found.");
@@ -87,14 +115,14 @@ export async function startBrowserLogin(
       redirectUri = `http://localhost:${port}/auth/callback`;
       break;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EADDRINUSE" || port === 1457) {
+      if ((error as { code?: string }).code !== "EADDRINUSE" || port === 1457) {
         server.close();
         throw new Error("Browser login could not open a local callback. Use a device code instead.");
       }
     }
   }
   server.on("error", () => finish(new Error("ChatGPT login callback stopped. Try again or use a device code.")));
-  timer = setTimeout(() => {
+  timer = window.setTimeout(() => {
     cancelled = true;
     finish(new Error("ChatGPT login timed out. Start the login again."));
   }, 15 * 60 * 1000);

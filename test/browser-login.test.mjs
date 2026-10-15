@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
 import { api } from './harness.mjs';
+globalThis.window = globalThis;
 
 const fetch = (url) => globalThis.fetch(url, { headers: { Connection: 'close' } });
 
