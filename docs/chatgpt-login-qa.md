@@ -18,4 +18,16 @@ Validation:
 - Native settings rendering showed both desktop login buttons. A synthetic device authorization in the real modal copied the test code, opened the expected official URL (browser/clipboard calls intercepted), and showed return instructions. No real account was authorized in this check.
 - Latest build copied to the isolated iCloud vault `Chatting Phase1 QA`, with matching local SHA-256. QA companion remains disabled. Phone-side reload/entry verification is recorded below when completed.
 
-Remaining acceptance: user completes real account sign-in on iPhone Air, returns to Obsidian, confirms Connected, sends a real request, and checks that the session survives a full app restart. New desktop browser OAuth also needs a real authorization completion; the earlier desktop live model check used the existing device-flow credential. Neither synthetic callback tests nor the prior mocked phone agent prove these remaining results.
+## Physical iPhone live acceptance — 2026-10-15
+
+The user completed ChatGPT sign-in on iPhone and deferred credential handoff / further code-free mobile login work. The installed production plugin now passed live phone acceptance with `gpt-6.1-sol` / `medium`, without a companion or injected model/tool callbacks:
+
+- Settings showed Connected; the real connection test returned `Hello`.
+- A 298-character Chinese draft passed exact readback. The production agent read two test-vault files, created `QA/Phone-Live-20261015.md`, and read it back. The final reply and inline/display math rendered; success tool parameters and result expanded correctly.
+- After terminating the process and reopening Obsidian, chat and tool results restored. A live follow-up continued the previous task without another login, replaced the new note's marker, set a boolean frontmatter property, and read both back.
+- An intentionally missing-file read displayed Failed with its actual error and parameters; the agent continued and completed the remaining work. Ten production tool calls returned nine successes and this one expected failure.
+- Independent iCloud readback confirmed marker `IPHONE-LIVE-20261015-B` and `mobile_qa_passed: true`. All 1,797 original visible test-vault files retained their hashes; only the new QA note was added. The main vault was not accessed.
+
+Sanitized evidence: [phase1-iphone-live-qa.json](phase1-iphone-live-qa.json). The `devicectl --terminate-existing` relaunch reported CoreDeviceError 10004 after the running app exited; SpringBoard was observed, then the Obsidian icon was tapped to reopen. History restoration and the following live request passed. This records a tooling failure without assuming an app-crash cause.
+
+Remaining boundaries: account-entry/consent screens were completed by the user before this run, not replayed. Forced token expiry/refresh, API-key providers, and new desktop browser OAuth completion are not covered by this phone acceptance. The earlier desktop live model check used an existing device-flow credential. Mobile code-free login and credential handoff are deferred, not reported as delivered. No merge or release performed.
