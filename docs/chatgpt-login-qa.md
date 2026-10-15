@@ -2,7 +2,7 @@
 
 Desktop now offers **Sign in with ChatGPT** (browser OAuth with PKCE) and **Use device code**. Mobile keeps device authorization with a combined **Copy code and open login page** action, code expiry and return-to-Obsidian instructions, and device-login enablement guidance.
 
-The previous implementation supported device authorization only. Official browser login still depends on a localhost callback; a hosted success page does not remove that callback. No documented Obsidian mobile redirect was found, so mobile does not attempt a custom redirect or load Node modules.
+The previous implementation supported device authorization only. This installed mobile flow does **not** meet the user's code-free sign-in requirement. Physical-device research now proves browser-to-Obsidian protocol callbacks work. OpenAI's new OSS Sign in with ChatGPT flow still specifies an HTTP `127.0.0.1` callback, and its authorization endpoint rejected our `obsidian://` redirect. A hosted success page alone does not remove that requirement. See [mobile OAuth research](mobile-oauth-research.md) for tested boundaries and the distinction between the existing Codex adapter and the new official plan-usage flow.
 
 Sources checked:
 

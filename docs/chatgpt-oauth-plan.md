@@ -1,6 +1,6 @@
 # ChatGPT OAuth — original mobile-first plan
 
-> 2026-10-15 update: desktop now also offers browser OAuth with PKCE and a loopback callback (1455, falling back to 1457). Mobile retains device authorization and adds a combined copy/open action. The v1 scope and design rationale below are historical; browser callbacks remain unavailable in mobile Obsidian. See `docs/chatgpt-login-qa.md` for validation boundaries.
+> 2026-10-15 update: desktop now also offers browser OAuth with PKCE and a loopback callback (1455, falling back to 1457). The installed mobile implementation still uses device authorization. That does not meet the requested code-free mobile sign-in. Browser-to-Obsidian protocol callbacks have now passed a physical iPhone test; the restriction is the provider's accepted redirect and the available native browser/loopback interfaces, not an inability of mobile Obsidian to receive callbacks. See `mobile-oauth-research.md` for source comparisons, live authorization tests, and remaining acceptance criteria.
 
 > Context: this repo is downstream of [Obsidian Chat](https://github.com/omarshahine/obsidian-chat). Upstream ships two providers (Anthropic, OpenAI) with API-key auth and an explicit non-streaming, mobile-first design. This document plans an additional **experimental** provider that lets the user authenticate with their ChatGPT account instead of supplying an OpenAI API key.
 
@@ -19,9 +19,9 @@
 - ❌ No streaming UI (upstream's non-streaming, `requestUrl()`-based architecture stays).
 - ❌ No promise that every ChatGPT-side model will work.
 
-## Why mobile must use Device Code Flow
+## Original reason for choosing Device Code Flow (not a platform requirement)
 
-A browser-callback OAuth flow needs a local HTTP server (e.g. `node:http` listening on `localhost`). That works on desktop Obsidian (Electron) but **not** on iOS/Android Obsidian, where Node modules are unavailable. Device Authorization Flow avoids the local server entirely:
+The original Codex client uses a loopback HTTP callback. Its Node HTTP listener works on desktop Obsidian (Electron), while mobile Obsidian does not provide Node modules. OAuth in general does not require such a listener: other Obsidian plugins use provider-registered `obsidian://` redirects. The current OpenAI OSS sign-in documentation requires a `127.0.0.1` callback, and our live custom-scheme request was rejected with `param=redirect_uri`. Device Authorization Flow was the initial implementation choice to avoid a listener:
 
 1. The plugin POSTs to the device-authorization endpoint and gets a `user_code` plus a verification URL.
 2. The user opens the URL in their phone browser, signs into ChatGPT, and enters the code.
