@@ -20,6 +20,8 @@ interface CallbackServer {
 interface HttpModule {
   createServer(callback: (req: IncomingMessage, res: ServerResponse) => void): CallbackServer;
 }
+declare const require: (moduleName: "http") => HttpModule;
+
 const base64Url = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes))
   .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 
@@ -35,8 +37,8 @@ export async function startBrowserLogin(
   let http: HttpModule;
   if (Platform.isDesktop) {
     // Electron's renderer cannot dynamically import node:http. Load it only here.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    http = require("http") as HttpModule;
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- Electron needs synchronous require in this desktop-only branch.
+    http = require("http");
   } else {
     throw new Error("Use device-code login on mobile.");
   }
