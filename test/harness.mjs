@@ -23,6 +23,7 @@ export const bundled = await build({
     export { ChatGPTOAuthStore } from './src/auth/chatgptOAuthStore';
     export { ChatGPTDeviceLoginModal } from './src/settings';
     export { selectionScope } from './src/main';
+    export { normalizeMathMarkdown } from './src/ui/math-markdown';
   `, resolveDir: process.cwd(), loader: 'ts' },
   bundle: true, write: false, platform: 'node', format: 'esm',
   plugins: [{ name: 'obsidian-test-transport', setup(build) {

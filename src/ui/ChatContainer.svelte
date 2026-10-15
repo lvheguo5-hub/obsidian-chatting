@@ -2,6 +2,7 @@
   import type { App } from "obsidian";
   import { Component as ObsidianComponent, MarkdownRenderer, Notice } from "obsidian";
   import type { ToolResult, SelectionScope, ImageAttachment } from "../types";
+  import { normalizeMathMarkdown } from "./math-markdown";
 
   const MAX_IMAGE_COUNT = 4;
   const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -57,15 +58,75 @@
     displayModel = model;
   });
 
-  // Auto-scroll when messages change
-  $effect(() => {
-    // Track messages array length to trigger scroll
-    messages.length;
-    if (messagesEl) {
-      requestAnimationFrame(() => {
-        messagesEl!.scrollTop = messagesEl!.scrollHeight;
-      });
+  // ─── Scrolling: stick to the bottom, like a chat ──────────────────────
+  // While the user is at the bottom, new messages keep the view there.
+  // Scrolling up stops that, so earlier messages can be read while a turn
+  // runs; back at the bottom it follows again. Sending a question always
+  // brings the view down. While scrolled up, a button jumps back to the
+  // bottom. Only scrolling up stops following: the browser also scrolls by
+  // itself (content above changing height, a shorter list), which mustn't
+  // leave the answer half hidden.
+  /** Pixels from the bottom that still count as "at the bottom". */
+  const BOTTOM_SLACK = 32;
+  let messageListEl: HTMLElement | undefined = $state();
+  let stickToBottom = true;
+  let showJump = $state(false);
+  let lastQuestionId = -1;
+  let lastScrollTop = 0;
+
+  function isAtBottom(el: HTMLElement): boolean {
+    return el.scrollHeight - el.scrollTop - el.clientHeight <= BOTTOM_SLACK;
+  }
+
+  /** Follow new content while sticking to the bottom; otherwise offer the jump button. */
+  function followBottom(): void {
+    const el = messagesEl;
+    if (!el) return;
+    if (stickToBottom) {
+      el.scrollTop = el.scrollHeight;
+      lastScrollTop = el.scrollTop;
+      showJump = false;
+    } else if (!isAtBottom(el)) {
+      showJump = true;
     }
+  }
+
+  function jumpToBottom(): void {
+    stickToBottom = true;
+    followBottom();
+  }
+
+  // A new question (sent, or the history shown anew) brings the view down.
+  $effect(() => {
+    let lastId = -1;
+    for (const msg of messages) if (msg.type === "user") lastId = msg.id;
+    if (lastId !== lastQuestionId) {
+      lastQuestionId = lastId;
+      stickToBottom = true;
+    }
+    followBottom();
+  });
+
+  // Rendered Markdown, math, images, opened tool details and a resized panel
+  // or phone keyboard change heights after the messages do.
+  $effect(() => {
+    const el = messagesEl;
+    if (!el || !messageListEl) return;
+    const observer = new ResizeObserver(() => followBottom());
+    observer.observe(el, { box: "border-box" });
+    observer.observe(messageListEl);
+    // Scrolling up (wheel, touch, scrollbar, keys) stops following; back at the bottom it follows.
+    const onScroll = () => {
+      if (isAtBottom(el)) stickToBottom = true;
+      else if (el.scrollTop < lastScrollTop) stickToBottom = false;
+      lastScrollTop = el.scrollTop;
+      showJump = !stickToBottom && !isAtBottom(el);
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      observer.disconnect();
+      el.removeEventListener("scroll", onScroll);
+    };
   });
 
   // ─── Public API (called from chat-view.ts / chat-modal.ts) ────────────
@@ -352,14 +413,15 @@
   // Render markdown into a DOM node using Obsidian's renderer. Each render
   // gets its own child component, unloaded when the text changes or the
   // message goes away; with the view itself as the component, everything
-  // the renderer registers would stay loaded until the view closes.
+  // the renderer registers would stay loaded until the view closes. Math
+  // delimiters are normalized for display only; the message stays unchanged.
   function markdown(node: HTMLElement, text: string) {
     let child: ObsidianComponent | null = null;
     const render = (value: string) => {
       if (child) component.removeChild(child);
       child = component.addChild(new ObsidianComponent());
       node.empty();
-      MarkdownRenderer.render(app, value, node, "", child);
+      MarkdownRenderer.render(app, normalizeMathMarkdown(value), node, "", child);
     };
     render(text);
     return {
@@ -392,6 +454,7 @@
 
   <!-- Messages -->
   <div class="ochatting-messages" bind:this={messagesEl}>
+    <div class="ochatting-message-list" bind:this={messageListEl}>
     {#each messages as msg (msg.id)}
       {#if msg.type === "user"}
         <div class="ochatting-msg ochatting-user-msg">
@@ -457,6 +520,13 @@
         </div>
       {/if}
     {/each}
+    </div>
+    {#if showJump}
+      <!-- Scrolled up: back to the latest message (sticks to the view's bottom edge) -->
+      <button class="ochatting-jump-btn" type="button" onclick={jumpToBottom} aria-label="Scroll to the latest message" title="Scroll to the latest message">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>
+      </button>
+    {/if}
   </div>
 
   <!-- Selection pill -->
@@ -602,12 +672,40 @@
     flex: 1 1 0;
     overflow-y: auto;
     overscroll-behavior: contain;
+    /* The view follows the bottom itself (followBottom); no anchoring jumps */
+    overflow-anchor: none;
     padding: 12px;
+    -webkit-user-select: text;
+    user-select: text;
+  }
+
+  .ochatting-message-list {
     display: flex;
     flex-direction: column;
     gap: 8px;
-    -webkit-user-select: text;
-    user-select: text;
+  }
+
+  /* Round "to the latest message" button, stuck to the bottom edge of the view */
+  .ochatting-jump-btn {
+    position: sticky;
+    bottom: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    margin: 8px auto 0;
+    padding: 0;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 50%;
+    background: var(--background-primary);
+    color: var(--text-muted);
+    box-shadow: var(--shadow-s);
+    cursor: pointer;
+  }
+
+  .ochatting-jump-btn:hover {
+    color: var(--text-normal);
   }
 
   .ochatting-msg {
