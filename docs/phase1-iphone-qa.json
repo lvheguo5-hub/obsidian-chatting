@@ -40,6 +40,7 @@
   "notes": [
     "USB appDataContainer listing failed; resolved deployment through a new iCloud vault and phone UI plugin enable.",
     "A newline sent by the automation submitted the first line under the default Enter-to-send behavior; the long-input check then used wrapped text without newline keystrokes.",
-    "No account credentials copied; no main vault modified."
+    "No account credentials copied; no main vault modified.",
+    "The optional metric-capture revision of the QA companion failed to load on a later reload. That attempt is not counted as passed; the earlier physical UI run and reload succeeded. Companion disabled at closeout, production candidate remains enabled."
   ]
 }
