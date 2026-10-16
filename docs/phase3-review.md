@@ -36,8 +36,16 @@ Desktop native Obsidian 1.13.7, isolated `ob 插件测试` vault, production Cha
 - Second conversation returned `PHASE3-SECOND-CHAT-OK`, with exactly one user turn in its API history. Switching back restored the renamed first conversation.
 - A valid DOCX generated with python-docx was actually read through read_file and the live ChatGPT backend returned `PHASE3-DOCX-QUARTZ`. A deliberately minimal ZIP fixture was not accepted as a readable document by the backend and is not counted as a passing document test.
 
-Native reports are in `/Volumes/StudioSSD/Developer/BuildScratch/ChattingPhase3`. Phone validation and final protected-file hash comparisons are recorded after they run. Only isolated QA vaults are used; the main vault is not accessed and credentials are not copied.
+Phone: physical iPhone Air, Obsidian 1.14.5, iOS 27.0.1, production ChatGPT gpt-6.1-sol medium:
+
+- First run correctly failed because the new fixtures were not yet in the device's vault index. Files.app subsequently showed the four synced fixtures and previewed Valid.docx correctly; after Obsidian reloaded, the actual workflow succeeded. No failed run is counted as a pass.
+- use_skill, linked-note context, read/edit and DOCX read returned `PHASE3-PHONE-PASS`, `QUARTZ-731`, `PHASE3-DOCX-QUARTZ` and `PHASE3-SKILL-OK`. Plan.md changed only TARGET → VERIFIED and retained SAFE.
+- The actual Undo button restored SAFE / TARGET and the row changed to “Undid the changes to Plan · 5 steps”.
+- New chat returned `PHASE3-PHONE-SECOND-OK`; selecting the original chat in Chats restored its reply and undone row. A cold app restart restored that active conversation and its saved undo status; a new real request re-read Plan.md and returned `PHASE3-PHONE-RESTART-OK`, confirming the original SAFE / TARGET content and retained sign-in.
+- Existing ChatGPT sign-in was used on each device. No credentials were copied.
+
+Native reports are in `/Volumes/StudioSSD/Developer/BuildScratch/ChattingPhase3`. Desktop plugin reload retained all five conversations and its active DOCX reply. Final protected-file hash comparisons cover 1803 pre-existing desktop files and 1807 pre-existing phone-vault files: all 3610 are unchanged. Only isolated QA vaults are used; the main vault is not accessed.
 
 ## Release state
 
-0.7.0 is candidate metadata on this development branch. No third-phase integration PR, merge, tag or release has been created. The existing second-phase PR remains the only active integration/release PR. External review and official scanning remain required before release.
+0.7.0 is candidate metadata on this development branch. The development branch is pushed with code integration commit `c441b1eea157330af57d7483dc74e71372f2b026`; its clean archive rebuild passed all 416 tests and checks, and all three asset SHA-256 values match. No third-phase integration PR, main-branch merge, tag or release has been created. The existing second-phase PR remains the only active integration/release PR. External review and official scanning remain required before release.
