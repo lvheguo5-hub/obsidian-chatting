@@ -4,7 +4,7 @@
 // Applied at render time only; stored messages stay unchanged. Adapted from
 // src/ui/math-markdown.ts in nagisa525/obsidian-chatting-plus (MIT).
 
-const FENCE_OPEN = /^( {0,3})(`{3,}|~{3,})(.*)$/;
+const FENCE_OPEN = /^([ \t]*)(`{3,}|~{3,})(.*)$/;
 const MATH_INFO = /^\s*(?:math|latex|tex)\s*$/i;
 // Inline code spans: a backtick run closed by a run of the same length.
 const CODE_SPAN = /(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g;
@@ -44,15 +44,16 @@ export function normalizeMathMarkdown(source: string): string {
     }
     const list = /^[ \t]*(?:[-+*]|\d+[.)])[ \t]+/.exec(lines[i]);
     if (list) listIndents.push(indentWidth(list[0].replace(/[^ \t]/g, " ")));
+    const fenceBase = listIndents.at(-1) ?? 0;
     const open = FENCE_OPEN.exec(lines[i]);
     // A backtick fence's info string can't contain backticks (CommonMark).
-    if (!open || (open[2][0] === "`" && open[3].includes("`"))) {
+    if (!open || indentation > fenceBase + 3 || (open[2][0] === "`" && open[3].includes("`"))) {
       prose.push(lines[i]);
       continue;
     }
     const [, indent, fence, info] = open;
     let end = i + 1;
-    while (end < lines.length && !closesFence(lines[end], fence)) end++;
+    while (end < lines.length && !closesFence(lines[end], fence, fenceBase)) end++;
     const body = lines.slice(i + 1, end);
     flushProse();
 
@@ -80,9 +81,10 @@ function indentWidth(line: string): number {
   return width;
 }
 
-function closesFence(line: string, fence: string): boolean {
-  const close = /^ {0,3}(`{3,}|~{3,})\s*$/.exec(line);
-  return close !== null && close[1][0] === fence[0] && close[1].length >= fence.length;
+function closesFence(line: string, fence: string, base: number): boolean {
+  const close = /^([ \t]*)(`{3,}|~{3,})\s*$/.exec(line);
+  return close !== null && indentWidth(close[1]) >= base && indentWidth(close[1]) <= base + 3
+    && close[2][0] === fence[0] && close[2].length >= fence.length;
 }
 
 function normalizeProse(text: string): string {

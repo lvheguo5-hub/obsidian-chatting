@@ -95,3 +95,10 @@ test('a wiki alias alone does not turn prose into a table', () => {
   const source = 'See [[A|a]] here.\nNot a table | [[B|b]]\nStill prose.';
   assert.equal(normalize(source), source);
 });
+
+test('math fences use the active list content indentation', () => {
+  assert.equal(normalize('10. Formula\n\n    ```math\n    x^2\n    ```'), '10. Formula\n\n    $$\n    x^2\n    $$');
+  assert.equal(normalize('- parent\n  10. Formula\n\n      ~~~math\n      x^2\n      ~~~'), '- parent\n  10. Formula\n\n      $$\n      x^2\n      $$');
+  const literal='Example:\n\n    ```math\n    x^2\n    ```';
+  assert.equal(normalize(literal),literal);
+});
