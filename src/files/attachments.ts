@@ -18,14 +18,18 @@ export const FILE_TEXT_CHARS = 100000;
  * The transport also checks the exact final request, since history varies.
  */
 export const MAX_ATTACHMENT_PAYLOAD_BYTES = 20 * 1024 * 1024;
+export const ATTACHMENT_BUDGET_MESSAGE = "The combined images and files exceed the 20 MB encoded attachment limit. Remove some attachments or linked files and send them in a separate message.";
+
+export function encodedAttachmentBytes(attachment: ImageAttachment | FileAttachment): number {
+  return new TextEncoder().encode(JSON.stringify(attachment)).byteLength;
+}
 
 export function attachmentBudgetError(images: ImageAttachment[], files: FileAttachment[]): string | null {
   let bytes = 0;
   for (const attachment of [...images, ...files]) {
-    const json = JSON.stringify(attachment);
-    bytes += new TextEncoder().encode(json).byteLength;
+    bytes += encodedAttachmentBytes(attachment);
     if (bytes > MAX_ATTACHMENT_PAYLOAD_BYTES) {
-      return "The combined images and files exceed the 20 MB encoded attachment limit. Remove some attachments or linked files and send them in a separate message.";
+      return ATTACHMENT_BUDGET_MESSAGE;
     }
   }
   return null;

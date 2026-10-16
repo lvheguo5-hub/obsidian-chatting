@@ -72,6 +72,7 @@ interface ChatContainerProps {
 
 interface ChatContainerApi extends Record<string, unknown> {
   addUserMessage(text: string, images?: ImageAttachment[], turnId?: string, selection?: SelectionScope, files?: FileAttachment[]): void;
+  restoreDraft?(text: string, selection: SelectionScope | null, images: ImageAttachment[], files: FileAttachment[]): void;
   addAssistantMessage(text: string): void;
   cutMessages(turnId: string): void;
   addToolCall(name: string, input: Record<string, unknown>): number;
@@ -437,11 +438,7 @@ export class ObsidianChatView extends ItemView {
     this.releaseScreen = releaseScreen;
     const turnId = newTurnId();
     const savedSelection = selection ? historySelection(selection) : undefined;
-    chat.addUserMessage(text, images, turnId, savedSelection, files);
-    history.push({ type: "user", text, images, turnId, ...(savedSelection ? { selection: savedSelection } : {}), ...(files.length ? { attachedFiles: files } : {}) });
-    this.plugin.touchConversation();
     const conversation = this.plugin.activeConversation;
-    chat.setTitle(conversation.title);
     chat.setInputEnabled(false);
     chat.setBusy(true);
     // What the model should know of (an undo), told once, with this turn.
@@ -457,7 +454,7 @@ export class ObsidianChatView extends ItemView {
       // shows only the typed text.
       const app = this.plugin.app;
       const source = app.workspace.getActiveFile()?.path ?? "";
-      const linked = await mentionContext(app, mentionedFiles(app, text, source));
+      const linked = await mentionContext(app, mentionedFiles(app, text, source), { images, files });
       if (!isCurrent()) return;
       // Skills named as /name go along loaded, before the linked files.
       const skills = await invokedSkillsText(app, this.plugin.settings.skillsFolder, text);
@@ -471,6 +468,12 @@ export class ObsidianChatView extends ItemView {
         history.push({ type: "error", text: budgetError });
         return;
       }
+      // Only consume the submitted draft after its linked context is valid.
+      // A rejected draft must not become an uneditable visible-only turn.
+      chat.addUserMessage(text, images, turnId, savedSelection, files);
+      history.push({ type: "user", text, images, turnId, ...(savedSelection ? { selection: savedSelection } : {}), ...(files.length ? { attachedFiles: files } : {}) });
+      this.plugin.touchConversation();
+      chat.setTitle(conversation.title);
       started = true;
       await this.plugin.agent.run(text, {
         changes,
@@ -525,6 +528,7 @@ export class ObsidianChatView extends ItemView {
       history.push({ type: "error", text: `Unexpected error: ${msg}` });
     } finally {
       if (!started && notes.length) conversation.notes = [...notes, ...conversation.notes ?? []];
+      if (!started && isCurrent()) chat.restoreDraft?.(text, selection, images, files);
       releaseScreen();
       if (!changes.isEmpty()) this.addChanges(history, turnId, changes);
       // The turn is over: its steps fold into one row above the answer.

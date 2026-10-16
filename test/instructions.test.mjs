@@ -146,6 +146,45 @@ for (const name of ['delete_file', 'rename_file']) {
   });
 }
 
+test('Content search returns instructions for files it reads, including non-matches and canvases, once per conversation', async () => {
+  const { app, loop } = loopWith({
+    'Work/AGENTS.md': 'Summarize work in German.',
+    'Work/Match.md': 'needle here',
+    'Other/AGENTS.md': 'Keep other summaries brief.',
+    'Other/NoMatch.md': 'no match',
+    'Boards/AGENTS.md': 'Describe boards with their labels.',
+    'Boards/Scene.canvas': JSON.stringify({ nodes: [{ id: 'n1', type: 'text', text: 'needle card', x: 0, y: 0, width: 10, height: 10 }], edges: [] }),
+  });
+  app.vault.getFiles = () => [{ path: 'Boards/Scene.canvas' }];
+  app.vault.getMarkdownFiles = () => [{ path: 'Work/Match.md' }, { path: 'Other/NoMatch.md' }];
+  let calls = 0;
+  const cb = callbacks({ onToolResult: (_name, result) => { assert.equal(result.instructionPaths, undefined); } });
+  const requests = transport((body, index) => {
+    if (index === 0 || index === 2) return response('anthropic', [call(`search${calls++}`, 'search_vault', { query: 'needle', searchContent: true })], 'tool_use', index);
+    return response('anthropic', [text('Done')], 'end_turn', index);
+  });
+  await loop.run('Search', cb);
+  const first = resultText(toolResults(requests[1]).at(-1));
+  assert.match(first, /needle here[\s\S]*needle card/);
+  assert.match(first, /Summarize work in German/);
+  assert.match(first, /Keep other summaries brief/);
+  assert.match(first, /Describe boards with their labels/);
+  assert.doesNotMatch(JSON.stringify(loop.exportMessages()), /instructionPaths/);
+  await loop.run('Search again', cb);
+  assert.doesNotMatch(resultText(toolResults(requests[3]).at(-1)), /Instructions for files/);
+});
+
+test('A search with no content match still delivers instructions from the files it read', async () => {
+  const { app, loop } = loopWith({ 'Work/AGENTS.md': 'Work search rule.', 'Work/Plan.md': 'Other content' });
+  app.vault.getFiles = () => [];
+  app.vault.getMarkdownFiles = () => [{ path: 'Work/Plan.md' }];
+  const requests = transport((body, index) => index === 0
+    ? response('anthropic', [call('s', 'search_vault', { query: 'not-found', searchContent: true })], 'tool_use')
+    : response('anthropic', [text('Done')], 'end_turn', index));
+  await loop.run('Find a term', callbacks());
+  assert.match(resultText(toolResults(requests[1]).at(-1)), /No results found[\s\S]*Work search rule/);
+});
+
 // A settings row that records its name, description and button.
 function row() {
   const r = { setName(name) { r.name = name; return r; }, setDesc(desc) { r.desc = desc; return r; } };

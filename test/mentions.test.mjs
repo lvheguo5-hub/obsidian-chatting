@@ -114,10 +114,44 @@ test('mentionContext: all notes together stay within the total', async () => {
   assert.match(context.text, /cut after 0 of 20000 characters/);
 });
 
+test('mentionContext stops before reading the next large document when metadata proves the encoded budget cannot fit', async () => {
+  const app = mentionVault(Object.fromEntries(Array.from({ length: 10 }, (_, n) => [`D${n}.pdf`, ''])));
+  const files = app.vault.getFiles();
+  for (const file of files) file.stat.size = 10 * 1024 * 1024;
+  const reads = [];
+  app.vault.readBinary = async file => { reads.push(file.path); return new ArrayBuffer(file.stat.size); };
+  await assert.rejects(M.mentionContext(app, files), /encoded attachment limit/);
+  assert.deepEqual(reads, ['D0.pdf']);
+});
+
+test('mentionContext counts picked attachments before reading links and checks actual bytes when metadata understates size', async () => {
+  const app = mentionVault({ 'D1.pdf': '', 'D2.pdf': '', 'D3.pdf': '' });
+  const files = app.vault.getFiles();
+  for (const file of files) file.stat.size = 9 * 1024 * 1024;
+  let reads = 0;
+  app.vault.readBinary = async () => { reads++; return new ArrayBuffer(9 * 1024 * 1024); };
+  const picked = { id: 'picked', fileName: 'Picked.pdf', mediaType: 'application/pdf', data: 'A'.repeat(12 * 1024 * 1024), sizeBytes: 9 * 1024 * 1024 };
+  await assert.rejects(M.mentionContext(app, files, { images: [], files: [picked] }), /encoded attachment limit/);
+  assert.equal(reads, 0);
+  for (const file of files) file.stat.size = 1;
+  await assert.rejects(M.mentionContext(app, files), /encoded attachment limit/);
+  assert.equal(reads, 2); // Stop immediately after actual data crosses the budget.
+});
+
+test('mentionContext counts picked images together with linked files', async () => {
+  const app = mentionVault({ 'Large.pdf': '' });
+  const file = app.vault.getFileByPath('Large.pdf');
+  file.stat.size = 10 * 1024 * 1024;
+  app.vault.readBinary = async () => { assert.fail('Must reject before reading the document'); };
+  const images = Array.from({ length: 2 }, (_, i) => ({ id: `i${i}`, fileName: `${i}.png`, mediaType: 'image/png', data: 'A'.repeat(6 * 1024 * 1024), sizeBytes: 4.5 * 1024 * 1024 }));
+  await assert.rejects(M.mentionContext(app, [file], { images, files: [] }), /encoded attachment limit/);
+});
+
 // Records what the view shows, in place of ChatContainer.svelte.
 function fakeChat() {
   const chat = {
     shown: [],
+    restoreDraft(text, selection, images, files) { chat.draft = { text, selection, images, files }; },
     addUserMessage(value, images = []) { chat.shown.push({ type: 'user', text: value, images }); },
     addAssistantMessage(value) { chat.shown.push({ type: 'assistant', text: value }); },
     addToolCall() { return 0; }, updateToolResult() {},
@@ -168,4 +202,27 @@ test('Sending a message without a linked file: nothing is added', async () => {
   const sent = requests[0].messages.at(-1).content;
   assert.equal(typeof sent, 'string');
   assert.doesNotMatch(sent, /Files the user linked/);
+});
+
+test('Rejected linked attachments restore the complete draft without a stranded user turn, then a smaller retry succeeds', async () => {
+  const { app } = vaultApp();
+  const vault = mentionVault({ 'Linked.pdf': '' });
+  Object.assign(app.vault, vault.vault);
+  app.metadataCache = vault.metadataCache;
+  app.vault.getFileByPath('Linked.pdf').stat.size = 10 * 1024 * 1024;
+  app.vault.readBinary = async () => { assert.fail('The picked file already leaves too little room'); };
+  const { plugin, view, chat } = chatView(app);
+  const requests = transport(() => response('anthropic', [text('ok')]));
+  const file = { id: 'picked', fileName: 'Picked.pdf', mediaType: 'application/pdf', data: 'A'.repeat(12 * 1024 * 1024), sizeBytes: 9 * 1024 * 1024 };
+  const images = [{ id: 'picked-image', fileName: 'Small.png', mediaType: 'image/png', data: 'eA==', sizeBytes: 1 }];
+  const selection = { filePath: 'Untitled.md', text: 'Original' };
+  await view.handleUserMessage('Compare [[Linked.pdf]]', selection, images, [file]);
+  assert.deepEqual(chat.draft, { text: 'Compare [[Linked.pdf]]', selection, images, files: [file] });
+  assert.equal(plugin.chatHistory.some(row => row.type === 'user'), false);
+  assert.equal(chat.shown.some(row => row.type === 'user'), false);
+  assert.equal(plugin.agent.isEmpty(), true);
+  assert.equal(requests.length, 0);
+  await view.handleUserMessage('Read only the picked document', selection, images, [file]);
+  assert.equal(requests.length, 1);
+  assert.equal(plugin.chatHistory.filter(row => row.type === 'user').length, 1);
 });

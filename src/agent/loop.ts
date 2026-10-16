@@ -369,12 +369,16 @@ export class AgentLoop {
         // A newly discovered rule must reach the model before a write.
         // Rules returned earlier in this same batch have not reached it yet.
         const knownRules = instructionsGiven(this.messages.slice(0, -1));
-        const folderRules = await folderInstructions(this.app, toolPaths(this.app, tc.name!, tc.input!), knownRules);
+        let folderRules = await folderInstructions(this.app, toolPaths(this.app, tc.name!, tc.input!), knownRules);
         if (isStopped()) return;
         const writes = ["edit_document", "create_file", "rename_file", "delete_file", "set_properties", "edit_canvas"];
         const result = folderRules && writes.includes(tc.name!)
           ? { result: `No changes made. Read the folder instructions below, then retry the tool if it complies.\n\n${folderRules}`, isError: true }
           : await executeTool(this.app, tc.name!, tc.input!, callbacks.onAskUser, scope, callbacks.changes, turnSettings.skillsFolder);
+        if (result.instructionPaths?.length) {
+          const discovered = await folderInstructions(this.app, result.instructionPaths, knownRules);
+          folderRules = [folderRules, discovered].filter(Boolean).join("\n\n");
+        }
         debugLog(this.app, "TOOL_CALL", { name: tc.name, input: tc.input, result: result.result, isError: result.isError });
         if (isStopped()) return;
         if (folderRules && !writes.includes(tc.name!)) result.result = `${result.result}\n\n${folderRules}`;
@@ -390,7 +394,8 @@ export class AgentLoop {
         // Pruning can copy this result message. Later calls in the same batch
         // must update its current array, not the superseded result array.
         resultBlocks = this.messages[this.messages.length - 1].content as ContentBlock[];
-        callbacks.onToolResult(tc.name!, displayResult(result));
+        const { instructionPaths: _paths, ...visibleResult } = result;
+        callbacks.onToolResult(tc.name!, displayResult(visibleResult));
       }
 
       if (isStopped()) return;

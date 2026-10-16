@@ -64,3 +64,13 @@ After these repairs, all 424 tests, TypeScript, Svelte (zero errors/warnings) an
 Head `e97562227f77cf84454afc831d0ac69c7906d1ef` passed CI and its exact-head Community Preview (Completed, no Error/Fail, Dependencies Pass). Codex found that an XLSX cell with an invalid column reference could expand a sparse row into millions of positions despite a small ZIP input.
 
 Excel text extraction now validates references before indexing (at most XFD / row 1,048,576). It also bounds total expanded cells and CSV text across the workbook, covering valid sparse columns and repeated shared strings. If extraction exceeds these bounds or encounters invalid references, the existing attachment path keeps the original document without unsafe local text extraction. Regression tests cover malformed/huge references, the valid XFD boundary, many wide rows, shared-string amplification and a subsequent normal workbook. All 426 tests, TypeScript, Svelte (zero errors/warnings) and production build pass; fresh external review and an exact-head Preview are required after push.
+
+## External review, round 3
+
+Head `752adfd4dc310d4aac549d57248b4aff6baabbbc` passed CI and its exact-head Community Preview. Codex found three remaining boundaries:
+
+- Mention resolution retained every large attachment before checking the combined budget. It now counts picked images/files first, checks document metadata before binary reads when the next file cannot fit, and checks actual encoded bytes after every loaded attachment. Oversized input aborts immediately without loading the rest.
+- Content search did not report the files it read for folder instructions. Search now returns internal first-touch paths, including non-matches and canvases. The loop delivers the corresponding rules in the result and removes this metadata before UI/persistence; instructions are still supplied once per conversation.
+- Rejected linked attachments left a visible-only user turn with no editable API history. The view now stages the user row until preflight succeeds and restores text, picked files/images and selection on preflight failure. Pending undo notes remain intact. Cancellation tests cover both a reused empty chat and switching from an existing conversation.
+
+All 433 tests, TypeScript, Svelte (zero errors/warnings) and production build pass. These repairs require fresh external review and an exact-head Preview after push.

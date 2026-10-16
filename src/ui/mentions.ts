@@ -1,7 +1,7 @@
 import type { App, TFile } from "obsidian";
 import { normalizePath, prepareFuzzySearch } from "obsidian";
 import type { FileAttachment, ImageAttachment, MentionContext } from "../types";
-import { fileAttachment, isSentAsFile, MAX_FILE_BYTES } from "../files/attachments";
+import { fileAttachment, isDocumentFile, isSentAsFile, MAX_FILE_BYTES, MAX_ATTACHMENT_PAYLOAD_BYTES, encodedAttachmentBytes, ATTACHMENT_BUDGET_MESSAGE } from "../files/attachments";
 import { describeCanvas, isCanvasPath, parseCanvas } from "../tools/canvas";
 import { fitImage, imageMediaType, MAX_SOURCE_IMAGE_BYTES } from "../images";
 
@@ -97,11 +97,16 @@ export function mentionedFiles(app: App, text: string, sourcePath: string): TFil
  * (capped), a canvas's outline, an image as an image, a PDF or Office
  * file as a file; others only by name.
  */
-export async function mentionContext(app: App, mentioned: TFile[]): Promise<MentionContext | null> {
+export async function mentionContext(app: App, mentioned: TFile[], picked: { images: ImageAttachment[]; files: FileAttachment[] } = { images: [], files: [] }): Promise<MentionContext | null> {
   if (mentioned.length === 0) return null;
   const parts: string[] = [];
   const images: ImageAttachment[] = [];
   const files: FileAttachment[] = [];
+  let attachmentBytes = [...picked.images, ...picked.files].reduce((total, item) => total + encodedAttachmentBytes(item), 0);
+  const checkRoom = (bytes: number) => {
+    if (attachmentBytes + bytes > MAX_ATTACHMENT_PAYLOAD_BYTES) throw new Error(ATTACHMENT_BUDGET_MESSAGE);
+  };
+  checkRoom(0);
   let budget = MENTION_TOTAL_CHARS;
   /** A file's text, within what is left of the budget. */
   const addText = (path: string, content: string) => {
@@ -118,13 +123,19 @@ export async function mentionContext(app: App, mentioned: TFile[]): Promise<Ment
     }
     const mediaType = imageMediaType(file.path);
     if (mediaType) {
+      let image;
       try {
-        const image = await fitImage(await app.vault.readBinary(file), mediaType);
-        images.push({ id: `mention-${Date.now()}-${images.length}`, fileName: file.name, mediaType: image.mediaType, data: image.data, sizeBytes: image.sizeBytes });
-        parts.push(`<file path="${file.path}">(the image is attached)</file>`);
+        image = await fitImage(await app.vault.readBinary(file), mediaType);
       } catch {
         parts.push(`<file path="${file.path}">(an image that couldn't be sent; use view_image)</file>`);
+        continue;
       }
+      const attachment: ImageAttachment = { id: `mention-${Date.now()}-${images.length}`, fileName: file.name, mediaType: image.mediaType, data: image.data, sizeBytes: image.sizeBytes };
+      const bytes = encodedAttachmentBytes(attachment);
+      checkRoom(bytes);
+      attachmentBytes += bytes;
+      images.push(attachment);
+      parts.push(`<file path="${file.path}">(the image is attached)</file>`);
     } else if (isCanvasPath(file.path)) {
       let outline: string;
       try {
@@ -137,10 +148,16 @@ export async function mentionContext(app: App, mentioned: TFile[]): Promise<Ment
       addText(file.path, await app.vault.cachedRead(file));
     } else {
       // PDF and Office files as files, other text as text.
+      // Base64 alone is a lower bound: reject before allocating another
+      // document when its metadata already proves it cannot fit.
+      if (isDocumentFile(file.name) && Number.isFinite(file.stat?.size)) checkRoom(4 * Math.ceil(file.stat.size / 3));
       const attachment = await fileAttachment(file.name, await app.vault.readBinary(file));
       if (typeof attachment === "string") {
         parts.push(`<file path="${file.path}">(not sent along: ${attachment})</file>`);
       } else if (isSentAsFile(attachment)) {
+        const bytes = encodedAttachmentBytes(attachment);
+        checkRoom(bytes);
+        attachmentBytes += bytes;
         files.push(attachment);
         parts.push(`<file path="${file.path}">(the file is attached)</file>`);
       } else {

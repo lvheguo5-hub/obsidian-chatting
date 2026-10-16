@@ -215,6 +215,8 @@ export interface ConversationSummary {
 export interface ToolResult {
   result: string;
   isError: boolean;
+  /** Internal first-touch paths (e.g. search reads); consumed by the loop, not saved or sent as metadata. */
+  instructionPaths?: string[];
   /**
    * Images for the model. They are kept only in the agent history; the
    * chat view gets the text with a marker instead (`AgentLoop`).

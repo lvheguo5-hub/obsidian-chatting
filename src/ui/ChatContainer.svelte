@@ -312,6 +312,15 @@
     messages.push({ id: nextId++, type: "user", text, images: images.slice(), attached: files.slice(), turnId, selection });
   }
 
+  /** Restore inputs if linked context fails validation before a turn starts. */
+  export function restoreDraft(text: string, currentSelection: SelectionScope | null, images: ImageAttachment[], files: FileAttachment[]): void {
+    inputText = text;
+    selection = currentSelection;
+    attachments = images.slice();
+    fileAttachments = files.slice();
+    void tick().then(autoGrow);
+  }
+
   export function addAssistantMessage(text: string): void {
     messages.push({ id: nextId++, type: "assistant", text });
   }

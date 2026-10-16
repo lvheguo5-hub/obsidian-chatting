@@ -80,8 +80,9 @@ const record = (id, question, updatedAt, extra = {}) => ({
 });
 const version3 = (activeConversationId, conversations) => ({ version: 3, savedAt: 1, activeConversationId, conversations });
 
-test('Switching during a mention read cannot start the old turn in the new conversation', async () => {
-  const { app, plugin, view } = await setup('anthropic');
+for (const existing of [false, true]) {
+test(`Switching during a mention read cannot start the old turn in the new conversation (existing history: ${existing})`, async () => {
+  const { app, plugin, view } = await setup('anthropic', existing ? version3('old', [record('old', 'Earlier topic', 1)]) : undefined);
   const file = { path: 'Hold.md', extension: 'md' };
   let release;
   let entered;
@@ -101,14 +102,19 @@ test('Switching during a mention read cannot start the old turn in the new conve
   await reading;
   view.newChat();
   const second = plugin.activeConversation;
-  assert.notEqual(first, second);
+  // An empty chat can be reused because preflight hasn't created a turn;
+  // an existing conversation must still switch to a separate empty chat.
+  if (existing) assert.notEqual(first, second);
+  else assert.equal(first, second);
   release();
   await pending;
   assert.equal(requests.length, 0);
+  assert.equal(first.chatHistory.some(row => row.text === 'Read [[Hold]]'), false);
   assert.deepEqual(second.agentMessages, []);
   await view.handleUserMessage('New topic', null);
   assert.deepEqual(userTurns(requests[0]), ['New topic']);
 });
+}
 
 test('A version 1 or 2 chat becomes the first, active conversation, once', async () => {
   const chatHistory = [{ type: 'user', text: 'Old question', turnId: 't1' }, { type: 'assistant', text: 'Old answer' }];

@@ -462,16 +462,19 @@ async function searchVault(
   const canvases = app.vault.getFiles().filter((f) => isCanvasPath(f.path));
   const files = [...app.vault.getMarkdownFiles(), ...canvases];
   const results: string[] = [];
+  const touched = new Set<string>();
 
   for (const file of files) {
     if (results.length >= limit) break;
 
     if (file.path.toLowerCase().includes(query)) {
+      touched.add(file.path);
       results.push(`- ${file.path}`);
       continue;
     }
 
     if (searchContent && isCanvasPath(file.path)) {
+      touched.add(file.path);
       // Card text, group labels and edge labels; positions in the JSON don't count.
       let texts: ReturnType<typeof canvasSearchTexts>;
       try {
@@ -485,6 +488,7 @@ async function searchVault(
         if (idx !== -1) results.push(`- ${file.path} (${kind} ${id}): ${snippet(text, idx, query.length)}`);
       }
     } else if (searchContent) {
+      touched.add(file.path);
       // cachedRead() avoids redundant disk reads
       const content = await app.vault.cachedRead(file);
       const lowerContent = content.toLowerCase();
@@ -496,12 +500,13 @@ async function searchVault(
   }
 
   if (results.length === 0) {
-    return { result: `No results found for "${query}".`, isError: false };
+    return { result: `No results found for "${query}".`, isError: false, instructionPaths: [...touched] };
   }
 
   return {
     result: `Found ${results.length} result(s):\n${results.join("\n")}`,
     isError: false,
+    instructionPaths: [...touched],
   };
 }
 
