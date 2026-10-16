@@ -215,6 +215,17 @@ test('get_links delivers folder instructions for its linked sources and unlinked
   assert.doesNotMatch(JSON.stringify(loop.exportMessages()), /instructionPaths/);
 });
 
+test('Linked-file rules are given again when pruning discards their earlier delivery', async () => {
+  const { app, loop } = loopWith({ 'Work/AGENTS.md': 'Retain the work rule.', 'Work/Plan.md': 'Plan' });
+  const rules = await api.instructions.folderInstructions(app, ['Work/Plan.md'], new Set());
+  const history = [];
+  for (let i = 0; i < 40; i++) history.push({ role: 'user', content: i === 0 ? rules : `Question ${i}`, turnId: `old${i}` }, { role: 'assistant', content: [text('Answer')] });
+  loop.importMessages(history);
+  const requests = transport(() => response('anthropic', [text('ok')]));
+  await loop.run('Summarize linked plan', callbacks(), null, [], 'next', { text: 'Plan content', images: [], files: [], instructionPaths: ['Work/Plan.md'] });
+  assert.match(requests[0].messages.at(-1).content, /Retain the work rule[\s\S]*Plan content/);
+});
+
 // A settings row that records its name, description and button.
 function row() {
   const r = { setName(name) { r.name = name; return r; }, setDesc(desc) { r.desc = desc; return r; } };

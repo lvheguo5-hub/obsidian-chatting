@@ -1,5 +1,5 @@
 import { App, TFile, TFolder, normalizePath, prepareFuzzySearch } from "obsidian";
-import type { ToolResult } from "../types";
+import type { ToolResult, MentionContext } from "../types";
 
 /**
  * Skills, as Claude Code and Codex have them: a folder per skill in the
@@ -94,7 +94,7 @@ export async function useSkill(app: App, folder: string, input: Record<string, u
   if (!skill) {
     return { result: `No skill named "${name}". Skills: ${skills.map((s) => s.name).join(", ") || "none"}.`, isError: true };
   }
-  return { result: await loadSkill(app, skill), isError: false };
+  return { result: await loadSkill(app, skill), isError: false, instructionPaths: [skill.path] };
 }
 
 /**
@@ -115,10 +115,15 @@ export function invokedSkills(text: string, skills: Skill[]): Skill[] {
 
 /** The skills a message invokes as `/name`, loaded, for its context; null when none. */
 export async function invokedSkillsText(app: App, folder: string, text: string): Promise<string | null> {
+  return (await invokedSkillsContext(app, folder, text))?.text ?? null;
+}
+
+export async function invokedSkillsContext(app: App, folder: string, text: string): Promise<MentionContext | null> {
   const invoked = invokedSkills(text, findSkills(app, folder));
   if (invoked.length === 0) return null;
   const loaded = await Promise.all(invoked.map((skill) => loadSkill(app, skill)));
-  return `[Skills the user invoked with /name; follow them for this request:]\n${loaded.join("\n\n")}`;
+  return { text: `[Skills the user invoked with /name; follow them for this request:]\n${loaded.join("\n\n")}`,
+    images: [], files: [], instructionPaths: invoked.map(skill => skill.path) };
 }
 
 /** The `/name` being typed: a `/` at the start of a line or after a space, up to the caret. */

@@ -175,7 +175,7 @@ for (const provider of ['anthropic', 'openai', 'chatgpt-oauth']) {
     // The chat view gets text and a marker, never the image data.
     assert.equal(shown.length, 1);
     assert.equal(shown[0].images, undefined);
-    assert.match(shown[0].result, /\[1 image sent to the model\]$/);
+    assert.match(shown[0].result, /\[1 image prepared for the model\]$/);
 
     // The saved chat holds the image once: in the agent history only.
     const writes = [];

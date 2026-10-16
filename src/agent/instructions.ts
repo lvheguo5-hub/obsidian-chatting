@@ -40,10 +40,12 @@ const HEADER = /\[Instructions for files in .*?\/, from (.+?); they add to the v
 export function instructionsGiven(messages: UnifiedMessage[]): Set<string> {
   const given = new Set<string>();
   for (const message of messages) {
-    if (typeof message.content === "string") continue;
-    for (const block of message.content) {
-      if (block.type !== "tool_result" || !block.content?.includes("[Instructions for files in ")) continue;
-      for (const [, path] of block.content.matchAll(HEADER)) given.add(path);
+    if (message.role !== "user") continue;
+    const texts = typeof message.content === "string" ? [message.content]
+      : message.content.flatMap(block => block.type === "tool_result" ? [block.content ?? ""] : block.type === "text" ? [block.text ?? ""] : []);
+    for (const text of texts) {
+      if (!text.includes("[Instructions for files in ")) continue;
+      for (const [, path] of text.matchAll(HEADER)) given.add(path);
     }
   }
   return given;

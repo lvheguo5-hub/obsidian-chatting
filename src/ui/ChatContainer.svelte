@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { App, TFile } from "obsidian";
   import { Component as ObsidianComponent, MarkdownRenderer, Notice } from "obsidian";
-  import { tick } from "svelte";
+  import { tick, onDestroy } from "svelte";
   import type { ToolResult, SelectionScope, ImageAttachment, FileAttachment, ConversationSummary } from "../types";
   import { ACCEPTED_FILES, MAX_FILE_BYTES, fileAttachment, attachmentBudgetError } from "../files/attachments";
   import { formatBytes } from "../images";
@@ -12,6 +12,7 @@
   import { fileLabel, toolLabel } from "./tool-label";
   import { foldPlan } from "./fold-turn";
   import type { ChangesState } from "./chat-view";
+  import { AttachmentPreparation } from "./attachment-preparation";
 
   const MAX_IMAGE_COUNT = 4;
   const MAX_FILE_COUNT = 4;
@@ -193,6 +194,9 @@
   let nextId = 0;
   /** A turn is running (set by the view); regenerate waits for it. */
   let busy = $state(false);
+  let attachmentLoading = $state(false);
+  const attachmentPreparation = new AttachmentPreparation(loading => { attachmentLoading = loading; });
+  onDestroy(() => attachmentPreparation.cancel());
 
   // Editing a user message in place
   let editingId = $state<number | null>(null);
@@ -314,6 +318,7 @@
 
   /** Restore inputs if linked context fails validation before a turn starts. */
   export function restoreDraft(text: string, currentSelection: SelectionScope | null, images: ImageAttachment[], files: FileAttachment[]): void {
+    attachmentPreparation.cancel();
     inputText = text;
     selection = currentSelection;
     attachments = images.slice();
@@ -438,6 +443,7 @@
   }
 
   export function setInputEnabled(enabled: boolean): void {
+    if (!enabled) attachmentPreparation.cancel();
     inputEnabled = enabled;
     placeholder = enabled ? "Ask anything..." : "Waiting for response...";
   }
@@ -447,6 +453,7 @@
   }
 
   export function clearMessages(): void {
+    attachmentPreparation.cancel();
     messages = [];
     editingId = null;
     attachments = [];
@@ -518,6 +525,7 @@
   }
 
   function handleSend(): void {
+    if (!inputEnabled || attachmentLoading) return;
     const text = inputText.trim();
     if (!text && attachments.length === 0 && fileAttachments.length === 0) return;
 
@@ -682,7 +690,7 @@
   }
 
   function openImagePicker(): void {
-    if (inputEnabled) fileInputEl?.click();
+    if (inputEnabled && !attachmentLoading) fileInputEl?.click();
   }
 
   async function handleImageSelection(event: Event): Promise<void> {
@@ -705,33 +713,46 @@
 
   /** Images to the images, everything else as a file (PDF, Office, text). */
   async function addFiles(files: File[]): Promise<void> {
-    // By type, or by name when the picker gives no type.
-    const isImage = (file: File) => file.type.startsWith("image/") || inferImageMimeType(file.name) !== "";
-    await addImageFiles(files.filter(isImage));
-    for (const file of files.filter((file) => !isImage(file))) {
-      if (fileAttachments.length >= MAX_FILE_COUNT) {
-        new Notice(`Attach up to ${MAX_FILE_COUNT} files per message.`);
-        return;
-      }
-      if (file.size > MAX_FILE_BYTES) {
-        new Notice(`${file.name} exceeds the 10 MB file limit.`);
-        continue;
-      }
-      const attachment = await fileAttachment(file.name, await file.arrayBuffer());
-      if (typeof attachment === "string") new Notice(attachment);
-      else {
-        const error = attachmentBudgetError(attachments, [...fileAttachments, attachment]);
-        if (error) new Notice(error);
-        else fileAttachments = [...fileAttachments, attachment];
-      }
+    if (!inputEnabled || attachmentLoading) {
+      new Notice("Please wait for the current attachments or response to finish.");
+      return;
     }
+    const preparation = attachmentPreparation.begin();
+    try {
+      // By type, or by name when the picker gives no type.
+      const isImage = (file: File) => file.type.startsWith("image/") || inferImageMimeType(file.name) !== "";
+      await addImageFiles(files.filter(isImage), preparation.current);
+      if (!preparation.current()) return;
+      for (const file of files.filter((file) => !isImage(file))) {
+        if (fileAttachments.length >= MAX_FILE_COUNT) {
+          new Notice(`Attach up to ${MAX_FILE_COUNT} files per message.`);
+          return;
+        }
+        if (file.size > MAX_FILE_BYTES) {
+          new Notice(`${file.name} exceeds the 10 MB file limit.`);
+          continue;
+        }
+        const bytes = await file.arrayBuffer();
+        if (!preparation.current()) return;
+        const attachment = await fileAttachment(file.name, bytes);
+        if (!preparation.current()) return;
+        if (typeof attachment === "string") new Notice(attachment);
+        else {
+          const error = attachmentBudgetError(attachments, [...fileAttachments, attachment]);
+          if (error) new Notice(error);
+          else fileAttachments = [...fileAttachments, attachment];
+        }
+      }
+    } catch (error) {
+      preparation.commit(() => new Notice(`Could not attach file: ${error instanceof Error ? error.message : String(error)}`));
+    } finally { preparation.finish(); }
   }
 
   function removeFile(id: string): void {
     fileAttachments = fileAttachments.filter((file) => file.id !== id);
   }
 
-  async function addImageFiles(files: File[]): Promise<void> {
+  async function addImageFiles(files: File[], current: () => boolean): Promise<void> {
     for (const file of files) {
       if (attachments.length >= MAX_IMAGE_COUNT) {
         new Notice(`Attach up to ${MAX_IMAGE_COUNT} images per message.`);
@@ -740,6 +761,7 @@
 
       try {
         const image = await readImageAttachment(file);
+        if (!current()) return;
         const budgetError = attachmentBudgetError([...attachments, image], fileAttachments);
         if (budgetError) {
           new Notice(budgetError);
@@ -752,6 +774,7 @@
         }
         attachments = [...attachments, image];
       } catch (error) {
+        if (!current()) return;
         const message = error instanceof Error ? error.message : String(error);
         new Notice(`Could not attach ${file.name || "image"}: ${message}`);
       }
@@ -1353,7 +1376,7 @@
       class="ochatting-attach-btn"
       type="button"
       onclick={openImagePicker}
-      disabled={!inputEnabled || (attachments.length >= MAX_IMAGE_COUNT && fileAttachments.length >= MAX_FILE_COUNT)}
+      disabled={!inputEnabled || attachmentLoading || (attachments.length >= MAX_IMAGE_COUNT && fileAttachments.length >= MAX_FILE_COUNT)}
       aria-label="Attach images or files"
       title="Attach images or files"
     >
@@ -1379,7 +1402,9 @@
       <button
         class="ochatting-send-btn"
         onclick={handleSend}
+        disabled={attachmentLoading}
         aria-label="Send message"
+        title={attachmentLoading ? "Preparing attachments..." : "Send message"}
       >
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
       </button>

@@ -19,7 +19,7 @@ import { buildContext } from "./context";
 import { folderInstructions, instructionsGiven, rootInstructions, toolPaths } from "./instructions";
 import { findSkills, skillsPrompt } from "./skills";
 import { buildSystemPrompt, buildContextMessage } from "./system-prompt";
-import { trimHistory, cutBeforeTurn, editableTurn, newTurnId, withoutOldToolImages, MAX_CONVERSATION_LENGTH } from "./history";
+import { trimHistory, cutBeforeTurn, editableTurn, newTurnId, withoutOldToolImages, withoutToolAttachments, MAX_CONVERSATION_LENGTH } from "./history";
 import { debugLog } from "../debug";
 import { attachmentBudgetError } from "../files/attachments";
 import { RequestBudgetError } from "../api/request-budget";
@@ -47,7 +47,7 @@ function displayResult(result: ToolResult): ToolResult {
     ...(files ? [files === 1 ? "1 file" : `${files} files`] : []),
   ].join(" and ");
   return {
-    result: `${result.result}\n\n[${what} sent to the model]`,
+    result: `${result.result}\n\n[${what} prepared for the model]`,
     isError: result.isError,
   };
 }
@@ -220,12 +220,23 @@ export class AgentLoop {
     // Build context once per user turn and prepend to the user message;
     // the files the message links to come next, the message itself last.
     const context = { ...buildContext(this.app), ...(notes.length ? { notes } : {}) };
-    const contextPrefix = mentioned ? `${buildContextMessage(context)}\n\n${mentioned.text}` : buildContextMessage(context);
+    let contextPrefix = mentioned ? `${buildContextMessage(context)}\n\n${mentioned.text}` : buildContextMessage(context);
     images = [...images, ...mentioned?.images ?? []];
     files = [...files, ...mentioned?.files ?? []];
     const budgetError = attachmentBudgetError(images, files);
     if (budgetError) {
-      callbacks.onError(budgetError);
+      (callbacks.onPreflightRejected ?? callbacks.onError)(budgetError);
+      return;
+    }
+    try {
+      const prospective: UnifiedMessage[] = [...this.messages, { role: "user", content: "", turnId }];
+      const retained = prospective.length > MAX_CONVERSATION_LENGTH ? trimHistory(prospective, KEEP_RECENT) : this.messages;
+      const rules = await folderInstructions(this.app, mentioned?.instructionPaths ?? [], instructionsGiven(retained));
+      if (isStopped()) return;
+      if (rules) contextPrefix = `${rules}\n\n${contextPrefix}`;
+    } catch (e) {
+      if (isStopped()) return;
+      (callbacks.onPreflightRejected ?? callbacks.onError)(e instanceof Error ? e.message : String(e));
       return;
     }
 
@@ -296,19 +307,33 @@ export class AgentLoop {
         );
       } catch (e) {
         if (isStopped()) return;
-        const msg = e instanceof Error ? e.message : String(e);
-        debugLog(this.app, "API_ERROR", { error: msg, model: this.settings.model, provider: this.settings.provider });
-        if (i === 0 && e instanceof RequestBudgetError) {
-          // Nothing reached the provider or tools. Undo local pruning and
-          // the pending user turn so its attachments cannot poison retries.
-          this.messages = beforeTurn;
-          clearOpenAIState();
-          clearChatGPTOAuthState();
-          (callbacks.onPreflightRejected ?? callbacks.onError)(msg);
+        if (i > 0 && e instanceof RequestBudgetError) {
+          const reduced = withoutToolAttachments(this.messages);
+          if (reduced !== this.messages) {
+            this.messages = reduced;
+            clearOpenAIState();
+            clearChatGPTOAuthState();
+            try {
+              response = await sendMessage(turnSettings, this.messages, TOOL_DEFINITIONS, systemPrompt, isStopped);
+            } catch (retryError) { e = retryError; }
+            if (isStopped()) return;
+          }
+        }
+        if (!response) {
+          const msg = e instanceof Error ? e.message : String(e);
+          debugLog(this.app, "API_ERROR", { error: msg, model: this.settings.model, provider: this.settings.provider });
+          if (i === 0 && e instanceof RequestBudgetError) {
+            // Nothing reached the provider or tools. Undo local pruning and
+            // the pending user turn so its attachments cannot poison retries.
+            this.messages = beforeTurn;
+            clearOpenAIState();
+            clearChatGPTOAuthState();
+            (callbacks.onPreflightRejected ?? callbacks.onError)(msg);
+            return;
+          }
+          callbacks.onError(msg);
           return;
         }
-        callbacks.onError(msg);
-        return;
       }
 
       debugLog(this.app, "API_RESPONSE", {

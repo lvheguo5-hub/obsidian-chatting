@@ -154,6 +154,8 @@ export interface MentionContext {
   text: string;
   images: ImageAttachment[];
   files: FileAttachment[];
+  /** Vault files whose contents were loaded into this user context. */
+  instructionPaths?: string[];
 }
 
 // ─── Selection Scope ────────────────────────────────────────────────────────

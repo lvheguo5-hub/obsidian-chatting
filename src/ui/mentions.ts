@@ -102,6 +102,7 @@ export async function mentionContext(app: App, mentioned: TFile[], picked: { ima
   const parts: string[] = [];
   const images: ImageAttachment[] = [];
   const files: FileAttachment[] = [];
+  const touched: string[] = [];
   let attachmentBytes = [...picked.images, ...picked.files].reduce((total, item) => total + encodedAttachmentBytes(item), 0);
   const checkRoom = (bytes: number) => {
     if (attachmentBytes + bytes > MAX_ATTACHMENT_PAYLOAD_BYTES) throw new Error(ATTACHMENT_BUDGET_MESSAGE);
@@ -121,6 +122,7 @@ export async function mentionContext(app: App, mentioned: TFile[], picked: { ima
       parts.push(`<file path="${file.path}">(not sent along: exceeds the file size limit)</file>`);
       continue;
     }
+    touched.push(file.path);
     const mediaType = imageMediaType(file.path);
     if (mediaType) {
       let image;
@@ -169,5 +171,6 @@ export async function mentionContext(app: App, mentioned: TFile[], picked: { ima
     text: `[Files the user linked in this message, as they are now:]\n${parts.join("\n")}`,
     images,
     files,
+    instructionPaths: touched,
   };
 }

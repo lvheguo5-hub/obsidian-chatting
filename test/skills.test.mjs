@@ -121,6 +121,27 @@ test('/name: invoked at the start or after a space, loaded along with the messag
   assert.equal(await skills.invokedSkillsText(skillsApp(), 'Skills', 'no skill here'), null);
 });
 
+test('Loaded skills report their file scope for both use_skill and slash context', async () => {
+  const app = skillsApp();
+  const original = app.vault.getFileByPath;
+  app.vault.getFileByPath = path => path === 'Skills/AGENTS.md' || path === 'Skills/meeting-notes/AGENTS.md' ? { path } : original(path);
+  const read = app.vault.cachedRead;
+  app.vault.cachedRead = async file => file.path === 'Skills/AGENTS.md' ? 'Keep skill results concise.' : file.path === 'Skills/meeting-notes/AGENTS.md' ? 'Meeting notes require actions.' : read(file);
+  const loop = new api.AgentLoop(app, { ...settings('anthropic'), skillsFolder: 'Skills' });
+  const requests = transport((body, index) => index === 0
+    ? response('anthropic', [call('use', 'use_skill', { name: 'meeting-notes' })], 'tool_use')
+    : response('anthropic', [text('Done')], 'end_turn', index));
+  await loop.run('Use the skill', callbacks());
+  const result = requests[1].messages.at(-1).content.find(block => block.type === 'tool_result');
+  assert.match(resultText(result), /Keep skill results concise[\s\S]*Meeting notes require actions/);
+  const context = await skills.invokedSkillsContext(app, 'Skills', '/meeting-notes');
+  assert.deepEqual(context.instructionPaths, ['Skills/meeting-notes/SKILL.md']);
+  const fresh = new api.AgentLoop(app, { ...settings('anthropic'), skillsFolder: 'Skills' });
+  const initial = transport(() => response('anthropic', [text('ok')]));
+  await fresh.run('/meeting-notes', callbacks(), null, [], 'slash', context);
+  assert.match(initial[0].messages.at(-1).content, /Keep skill results concise[\s\S]*Meeting notes require actions[\s\S]*<skill/);
+});
+
 test('/ autocomplete: what is being typed after a slash, and the matching skills', () => {
   assert.deepEqual(skills.skillAt('/mee', 4), { start: 0, query: 'mee' });
   assert.deepEqual(skills.skillAt('hi /', 4), { start: 3, query: '' });

@@ -262,7 +262,7 @@ for (const provider of ['anthropic', 'openai', 'chatgpt-oauth']) {
     const agent = new api.AgentLoop(app, settings(provider));
     const cb = callbacks({ onToolResult: (name, result) => { cb.shown = result.result; } });
     await agent.run('Read the scan', cb);
-    assert.match(cb.shown, /^Docs\/Scan\.pdf \(.*\) is attached\.\n\n\[1 file sent to the model\]$/);
+    assert.match(cb.shown, /^Docs\/Scan\.pdf \(.*\) is attached\.\n\n\[1 file prepared for the model\]$/);
     if (provider === 'anthropic') {
       const result = requests[1].messages.at(-1).content[0];
       assert.equal(result.content[1].type, 'document');
@@ -426,3 +426,37 @@ test('A file the API history no longer holds stays a name; its turn can\'t be ed
   assert.equal(requests.length, 0);
   assert.equal(plugin.chatHistory.length, 2);
 });
+
+for (const provider of ['anthropic', 'chatgpt-oauth']) {
+  test(`${provider}: an oversized tool follow-up omits only tool attachments and continues without losing work`, async () => {
+    const { app, files } = vaultApp();
+    files.set('Other.pdf', 'PDF');
+    app.vault.readBinary = async () => new ArrayBuffer(8 * 1024 * 1024);
+    const loop = new api.AgentLoop(app, { ...settings(provider), maxIterations: 2 });
+    const file = { id: 'previous', fileName: 'Previous.pdf', mediaType: 'application/pdf', sizeBytes: 10 * 1024 * 1024, data: 'A'.repeat(4 * Math.ceil(10 * 1024 * 1024 / 3)) };
+    loop.importMessages([
+      { role: 'user', content: [{ type: 'file', file }, text('First PDF')], turnId: 'old1' },
+      { role: 'assistant', content: [text('Read')] },
+      { role: 'user', content: [{ type: 'file', file: { ...file, id: 'second' } }, text('Second PDF')], turnId: 'old2' },
+      { role: 'assistant', content: [text('Read')] },
+    ]);
+    const requests = transport((body, index) => index === 0
+      ? response(provider, [call('read-more', 'read_file', { path: 'Other.pdf' })], 'tool_use')
+      : response(provider, [text('Please provide a smaller extract.')], 'end_turn', index));
+    const cb = callbacks();
+    await loop.run('Read another document', cb);
+    assert.deepEqual(cb.errors, []);
+    assert.deepEqual(cb.texts, ['Please provide a smaller extract.']);
+    assert.equal(requests.length, 2);
+    const history = loop.exportMessages();
+    const blocks = history.flatMap(message => typeof message.content === 'string' ? [] : message.content);
+    assert.equal(blocks.filter(block => block.type === 'file').length, 2);
+    const result = blocks.find(block => block.type === 'tool_result');
+    assert.equal(result.files, undefined);
+    assert.equal(result.is_error, true);
+    assert.match(result.content, /omitted because the request exceeded/);
+    await loop.run('Continue with text', callbacks());
+    assert.equal(requests.length, 3);
+    assert.equal(blocks.find(block => block.type === 'file').file.data, file.data);
+  });
+}

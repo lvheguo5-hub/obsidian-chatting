@@ -30,6 +30,25 @@ export const MAX_TOOL_IMAGE_BYTES = 10 * 1024 * 1024;
 export const MAX_TOOL_FILES = 4;
 export const MAX_TOOL_FILE_BYTES = 10 * 1024 * 1024;
 
+/** Last-resort payload preflight recovery. Keep text, tool pairing and all
+ * user attachments; explicitly tell the model why tool pixels/files left.
+ */
+export function withoutToolAttachments(messages: UnifiedMessage[]): UnifiedMessage[] {
+  let changed = false;
+  const next = messages.map(message => {
+    if (typeof message.content === "string") return message;
+    let replaced = false;
+    const content = message.content.map(block => {
+      if (block.type !== "tool_result" || (!block.images?.length && !block.files?.length)) return block;
+      replaced = changed = true;
+      const { images: _images, files: _files, ...rest } = block;
+      return { ...rest, is_error: true, content: `${rest.content ?? ""}\n[Tool images/files omitted because the request exceeded its size limit. Ask for a smaller file or a focused extract instead of reading the same attachment again unchanged.]` };
+    });
+    return replaced ? { ...message, content } : message;
+  });
+  return changed ? next : messages;
+}
+
 /**
  * The history as sent to a provider: tool results older than the last
  * `turns` user turns lose their images (`view_image`, `view_canvas`) and

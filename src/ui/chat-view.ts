@@ -12,7 +12,7 @@ import { historySelection } from "../selection-history";
 import { newTurnId } from "../agent/history";
 import { mentionContext, mentionedFiles } from "./mentions";
 import { attachmentBudgetError } from "../files/attachments";
-import { findSkills, invokedSkillsText, type Skill } from "../agent/skills";
+import { findSkills, invokedSkillsContext, type Skill } from "../agent/skills";
 
 export const VIEW_TYPE_CHAT = "ochatting-view";
 
@@ -457,10 +457,11 @@ export class ObsidianChatView extends ItemView {
       const linked = await mentionContext(app, mentionedFiles(app, text, source), { images, files });
       if (!isCurrent()) return;
       // Skills named as /name go along loaded, before the linked files.
-      const skills = await invokedSkillsText(app, this.plugin.settings.skillsFolder, text);
+      const skills = await invokedSkillsContext(app, this.plugin.settings.skillsFolder, text);
       if (!isCurrent()) return;
       const mentioned = skills
-        ? { text: linked ? `${skills}\n\n${linked.text}` : skills, images: linked?.images ?? [], files: linked?.files ?? [] }
+        ? { text: linked ? `${skills.text}\n\n${linked.text}` : skills.text, images: linked?.images ?? [], files: linked?.files ?? [],
+            instructionPaths: [...skills.instructionPaths ?? [], ...linked?.instructionPaths ?? []] }
         : linked;
       const budgetError = attachmentBudgetError([...images, ...mentioned?.images ?? []], [...files, ...mentioned?.files ?? []]);
       if (budgetError) {

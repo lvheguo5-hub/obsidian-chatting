@@ -204,6 +204,21 @@ test('Sending a message without a linked file: nothing is added', async () => {
   assert.doesNotMatch(sent, /Files the user linked/);
 });
 
+test('A linked note delivers its folder rules in the first user request before the file content', async () => {
+  const { app } = vaultApp();
+  const vault = mentionVault({ 'Work/AGENTS.md': 'Work summaries must be brief.', 'Work/Plan.md': 'Goal: ship' });
+  Object.assign(app.vault, vault.vault);
+  app.metadataCache = vault.metadataCache;
+  const { view } = chatView(app);
+  const requests = transport(() => response('anthropic', [text('ok')]));
+  await view.handleUserMessage('Summarize [[Work/Plan.md]]', null);
+  const sent = requests[0].messages.at(-1).content;
+  assert.equal(typeof sent, 'string');
+  assert.ok(sent.indexOf('Work summaries must be brief') < sent.indexOf('Goal: ship'));
+  await view.handleUserMessage('Summarize [[Work/Plan.md]] again', null);
+  assert.doesNotMatch(requests[1].messages.at(-1).content, /Work summaries must be brief/);
+});
+
 test('Rejected linked attachments restore the complete draft without a stranded user turn, then a smaller retry succeeds', async () => {
   const { app } = vaultApp();
   const vault = mentionVault({ 'Linked.pdf': '' });

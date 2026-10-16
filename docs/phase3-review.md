@@ -85,3 +85,14 @@ Head `f662080721467978d2c14e61f9243debc4a3ecef` passed CI and its exact-head Com
 - get_links reports all linked/unlinked source reads through instructionPaths, including non-matches. The existing result path adds their rules, avoids repeating the target folder rules in that result, and strips internal paths before UI/persistence.
 
 All 437 tests, TypeScript, Svelte (zero errors/warnings) and production build pass. Fresh review, CI and an exact-head Preview remain required for the repair commit.
+
+## External review, round 5
+
+Head `09bf74619aa7d394a38e8ddb7d092a59269b873c` passed CI and its exact-head Community Preview. Four further findings are repaired:
+
+- A later request enlarged by tool attachments now drops only tool images/files, adds an explicit omission/error note, resets response cursors and retries within the same model iteration. Existing user attachments, tool pairing and completed work stay intact; a later text turn can continue. UI markers say attachments are prepared, since preparation does not prove transport succeeded.
+- Linked-file and slash-skill contexts report their loaded paths. The loop supplies their folder rules before the initial user context; those deliveries count for later tool discovery. It calculates known rules against the history that will survive pruning, so an aged-out rule is delivered again.
+- use_skill reports its loaded SKILL.md path for the same folder-rule mechanism.
+- Attachment preparation has a pending flag and generation guard. Sending is disabled while files/images are read or parsed; reset, conversation change, restoration and teardown invalidate old completions. A stale completion cannot append to a new draft or unlock its newer pending load.
+
+All 444 tests, TypeScript, Svelte (zero errors/warnings) and production build pass. Fresh external review and exact-head Preview are required again.
