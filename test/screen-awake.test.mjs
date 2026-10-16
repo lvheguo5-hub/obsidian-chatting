@@ -144,7 +144,7 @@ function chatSetup(provider) {
   const ignore = () => {};
   view.chatContainer = {
     addUserMessage: ignore, addAssistantMessage: ignore, addError: ignore, addToolCall: () => 0, updateToolResult: ignore,
-    showThinking: ignore, hideThinking: ignore, cancelAskUser: ignore, setInputEnabled: ignore, setBusy: ignore, focus: ignore, clearMessages: ignore,
+    showThinking: ignore, hideThinking: ignore, cancelAskUser: ignore, setInputEnabled: ignore, setBusy: ignore, foldTurn: ignore, focus: ignore, clearMessages: ignore, setTitle: ignore,
   };
   return { plugin, view };
 }

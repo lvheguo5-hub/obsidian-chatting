@@ -2,8 +2,14 @@ import type { ChatHistoryEntry, ContentBlock, UnifiedMessage } from "../types";
 
 function startsUserTurn(message: UnifiedMessage): boolean {
   return message.role === "user" && (typeof message.content === "string" ||
-    message.content.some(block => block.type === "text" || block.type === "image"));
+    message.content.some(block => block.type === "text" || block.type === "image" || block.type === "file"));
 }
+
+/**
+ * API messages kept per conversation: sent, saved and restored. Trimming
+ * keeps whole user turns, so a long turn can keep a few more.
+ */
+export const MAX_CONVERSATION_LENGTH = 80;
 
 /** Keep whole user turns so pruning/persistence cannot orphan tool results. */
 export function trimHistory(messages: UnifiedMessage[], limit: number): UnifiedMessage[] {
@@ -17,10 +23,12 @@ export function trimHistory(messages: UnifiedMessage[], limit: number): UnifiedM
   return start === 0 ? messages : messages.slice(start);
 }
 
-/** Tool results of the last 2 user turns keep their images when sent. */
+/** Tool results of the last 2 user turns keep their images and files when sent. */
 export const TOOL_IMAGE_TURNS = 2;
 export const MAX_TOOL_IMAGES = 4;
 export const MAX_TOOL_IMAGE_BYTES = 10 * 1024 * 1024;
+export const MAX_TOOL_FILES = 4;
+export const MAX_TOOL_FILE_BYTES = 10 * 1024 * 1024;
 
 /**
  * The history as sent to a provider: tool results older than the last
@@ -67,21 +75,50 @@ export function withoutOldToolImages(messages: UnifiedMessage[], turns = TOOL_IM
       kept.set(block, positions);
     }
   }
+  const keptFilePositions = new Map<ContentBlock, number[]>();
+  let fileCount = 0;
+  let fileBytes = 0;
+  for (let index = messages.length - 1; index >= Math.max(0, cutoff); index--) {
+    const content = messages[index].content;
+    if (typeof content === "string") continue;
+    for (let b = content.length - 1; b >= 0; b--) {
+      const block = content[b];
+      if (block.type !== "tool_result" || !block.files?.length) continue;
+      const positions: number[] = [];
+      for (let i = block.files.length - 1; i >= 0; i--) {
+        const file = block.files[i];
+        const size = Math.ceil(file.data.length * 3 / 4) + (file.text?.length ?? 0) * 2;
+        if (fileCount >= MAX_TOOL_FILES || fileBytes + size > MAX_TOOL_FILE_BYTES) continue;
+        fileCount++; fileBytes += size;
+        positions.unshift(i);
+      }
+      keptFilePositions.set(block, positions);
+    }
+  }
   return messages.map(message => {
     if (typeof message.content === "string") return message;
     let changed = false;
     const content = message.content.map((block): ContentBlock => {
-      if (block.type !== "tool_result" || !block.images?.length) return block;
+      if (block.type !== "tool_result") return block;
+      const images = block.images ?? [];
+      const files = block.files ?? [];
       const positions = kept.get(block) ?? [];
-      if (positions.length === block.images.length) return block;
+      const keptFiles = (keptFilePositions.get(block) ?? []).map(i => files[i]);
+      if (positions.length === images.length && keptFiles.length === files.length) return block;
       changed = true;
-      const { images, ...rest } = block;
+      const { images: _images, files: _files, ...rest } = block;
       const omitted = images.length - positions.length;
-      const what = omitted === 1 ? "image" : `${omitted} images`;
+      const omittedFiles = files.length - keptFiles.length;
+      const what = [
+        ...(omitted ? [omitted === 1 ? "image" : `${omitted} images`] : []),
+        ...(omittedFiles ? [omittedFiles === 1 ? "file" : `${omittedFiles} files`] : []),
+      ].join(" and ");
       const tool = toolNames.get(block.tool_use_id ?? "") ?? "a tool";
       const note = `[${what} from ${tool} omitted to save context]`;
       return { ...rest, content: rest.content ? `${rest.content}\n\n${note}` : note,
-        ...(positions.length ? { images: positions.map(i => images[i]) } : {}) };
+        ...(positions.length ? { images: positions.map(i => images[i]) } : {}),
+        ...(keptFiles.length ? { files: keptFiles } : {}) };
+
     });
     return changed ? { ...message, content } : message;
   });

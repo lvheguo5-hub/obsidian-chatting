@@ -1,5 +1,6 @@
 import { App, TFile, getFrontMatterInfo, normalizePath } from "obsidian";
-import type { SelectionScope, ToolResult } from "../types";
+import type { SelectionScope, ToolResult, ViewTarget } from "../types";
+import { changedRange, showInView } from "../ui/show-in-view";
 import { listMetadata, queryNotes } from "./metadata-query";
 import { getLinks } from "./links";
 import { applyCanvasOperations, canvasSearchTexts, describeCanvas, isCanvasPath, parseCanvas, serializeCanvas } from "./canvas";
@@ -7,6 +8,9 @@ import { renderCanvas, shortIds } from "./canvas-render";
 import { selectionHash } from "../selection-history";
 import { canvasImageWithinBudget, PREVIEW_SOURCE_BYTES } from "./image-preview";
 import { readWebPage } from "./web-page";
+import type { ChangeLog } from "./undo";
+import { fileAttachment, isDocumentFile, MAX_FILE_BYTES } from "../files/attachments";
+import { DEFAULT_SKILLS_FOLDER, useSkill } from "../agent/skills";
 import { MAX_SOURCE_IMAGE_BYTES, createCanvasElement, decodeImage, encodeCanvas, extensionOf, fitImage, formatBytes, imageMediaType, isImagePath } from "../images";
 
 /**
@@ -31,13 +35,16 @@ type AskUserCallback = (question: string) => Promise<string>;
  * - vault.process() for atomic edits
  * - fileManager.renameFile() for link-aware renames
  * - fileManager.trashFile() for safe deletes
+ * Changes to the vault are recorded in `changes` (undo per answer).
  */
 export async function executeTool(
   app: App,
   toolName: string,
   input: Record<string, unknown>,
   onAskUser: AskUserCallback,
-  scope?: SelectionScope
+  scope?: SelectionScope,
+  changes?: ChangeLog,
+  skillsFolder = DEFAULT_SKILLS_FOLDER
 ): Promise<ToolResult> {
   if (Object.prototype.hasOwnProperty.call(input, "_raw")) {
     return { result: "Invalid tool arguments: provide a valid JSON object and retry.", isError: true };
@@ -49,7 +56,7 @@ export async function executeTool(
       case "read_document":
         return await readDocument(app, input);
       case "edit_document":
-        return await editDocument(app, input, scope);
+        return await editDocument(app, input, scope, changes);
       case "search_vault":
         return await searchVault(app, input);
       case "read_file":
@@ -61,19 +68,19 @@ export async function executeTool(
       case "view_canvas":
         return await viewCanvas(app, input);
       case "edit_canvas":
-        return await editCanvas(app, input);
+        return await editCanvas(app, input, changes);
       case "create_file":
-        return await createFile(app, input);
+        return await createFile(app, input, changes);
       case "list_files":
         return await listFiles(app, input);
       case "rename_file":
-        return await renameFile(app, input);
+        return await renameFile(app, input, changes);
       case "delete_file":
-        return await deleteFile(app, input);
+        return await deleteFile(app, input, changes);
       case "get_properties":
         return await getProperties(app, input);
       case "set_properties":
-        return await setProperties(app, input);
+        return await setProperties(app, input, changes);
       case "query_notes":
         return queryNotes(app, input);
       case "list_metadata":
@@ -83,6 +90,8 @@ export async function executeTool(
         return await getNoteLinks(app, input);
       case "get_current_datetime":
         return getCurrentDatetime();
+      case "use_skill":
+        return await useSkill(app, skillsFolder, input);
       case "open_document":
         return await openDocument(app, input);
       case "ask_user":
@@ -243,10 +252,14 @@ function resolveFile(app: App, path?: string): TFile | null {
 }
 
 /** Ensure parent folders exist for a path */
-async function ensureParentFolder(app: App, filePath: string): Promise<void> {
+async function ensureParentFolder(app: App, filePath: string, changes?: ChangeLog): Promise<void> {
   const parentPath = filePath.substring(0, filePath.lastIndexOf("/"));
   if (parentPath && !app.vault.getFolderByPath(parentPath)) {
+    // The folders that didn't exist yet, outermost first (undo removes them again).
+    const parts = parentPath.split("/");
+    const missing = parts.map((_, i) => parts.slice(0, i + 1).join("/")).filter((folder) => !app.vault.getFolderByPath(folder));
     await app.vault.createFolder(parentPath);
+    changes?.foldersCreated(missing);
   }
 }
 
@@ -307,6 +320,10 @@ async function readDocument(
   if (!file) {
     return { result: path ? `File not found: ${path}` : "No active document open.", isError: true };
   }
+  // A PDF or Office file can be read: read_file attaches it.
+  if (isDocumentFile(file.path) && !isImagePath(file.path)) {
+    return { result: `${file.path} is a PDF or Office file; read_document reads text only. Use read_file, which attaches it.`, isError: true };
+  }
   const refusal = refuseNonText(file, "read_document");
   if (refusal) return refusal;
 
@@ -318,7 +335,8 @@ async function readDocument(
 async function editDocument(
   app: App,
   input: Record<string, unknown>,
-  scope?: SelectionScope
+  scope: SelectionScope | undefined,
+  changes: ChangeLog | undefined
 ): Promise<ToolResult> {
   const operation = requiredString(input.operation);
   // A missing `content` must not become "": replace_all would blank the
@@ -340,9 +358,34 @@ async function editDocument(
   if (scope && file.path === scope.filePath) {
     if (operation !== "find_replace") return scopeRefusal(file.path);
     if (!find) return { result: "'find' parameter is required for find_replace.", isError: true };
-    return await editInScope(app, file, scope, find, content);
+    return await withChange(app, file, changes, () => editInScope(app, file, scope, find, content));
   }
+  return await withChange(app, file, changes, () => applyEdit(app, file, operation, content, find, position));
+}
 
+/**
+ * Runs a change to `file`, records it in `changes` for undo, and adds what
+ * changed (`focus`, unless the change set its own) to its result, for
+ * showing it to the user (`ui/show-in-view.ts`).
+ */
+async function withChange(app: App, file: TFile, changes: ChangeLog | undefined, change: () => Promise<ToolResult>): Promise<ToolResult> {
+  const before = await app.vault.cachedRead(file);
+  const result = await change();
+  if (result.isError) return result;
+  const after = await app.vault.cachedRead(file);
+  changes?.edited(file.path, before, after);
+  const range = result.focus ? null : changedRange(before, after);
+  return range ? { ...result, focus: { path: file.path, ...range } } : result;
+}
+
+async function applyEdit(
+  app: App,
+  file: TFile,
+  operation: string,
+  content: string,
+  find: string | undefined,
+  position: string | undefined
+): Promise<ToolResult> {
   switch (operation) {
     case "replace_all":
       await app.vault.process(file, () => content);
@@ -476,6 +519,15 @@ async function readFile(
     return { result: `File not found: ${path}`, isError: true };
   }
 
+  if (isDocumentFile(file.path)) {
+    if (file.stat?.size > MAX_FILE_BYTES) return { result: `${file.path} exceeds the 10 MB file limit.`, isError: true };
+    // Check before reading and again in fileAttachment in case the file grew.
+    // PDF and Office files go to the model as files (the provider reads them).
+    const attachment = await fileAttachment(file.path.slice(file.path.lastIndexOf("/") + 1), await app.vault.readBinary(file));
+    if (typeof attachment === "string") return { result: attachment, isError: true };
+    return { result: `${file.path} (${formatBytes(attachment.sizeBytes)}) is attached.`, isError: false, files: [attachment] };
+  }
+
   const refusal = refuseNonText(file, "read_file");
   if (refusal) return refusal;
 
@@ -604,7 +656,8 @@ async function viewCanvas(
 
 async function editCanvas(
   app: App,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
+  changes: ChangeLog | undefined
 ): Promise<ToolResult> {
   const file = resolveCanvas(app, requiredString(input.path));
   if ("isError" in file) return file;
@@ -612,15 +665,22 @@ async function editCanvas(
   if (!Array.isArray(operations) || operations.length === 0) {
     return { result: "'operations' must be a non-empty array.", isError: true };
   }
+  return await withChange(app, file, changes, () => applyCanvasEdit(app, file, operations));
+}
 
+async function applyCanvasEdit(app: App, file: TFile, operations: unknown[]): Promise<ToolResult> {
   const fileExists = (path: string) => app.vault.getFileByPath(normalizePath(path)) !== null;
   let summary: string[] = [];
   let error = "";
+  let changed: string[] = [];
   // All operations apply, or none: on any error the file is left unchanged.
   await app.vault.process(file, (data) => {
     try {
       const canvas = parseCanvas(data);
+      const before = new Map(canvas.nodes.map((node) => [node.id, JSON.stringify(node)]));
       summary = applyCanvasOperations(canvas, operations, fileExists);
+      // Cards added or changed, for showing them (`focus`).
+      changed = canvas.nodes.filter((node) => before.get(node.id) !== JSON.stringify(node)).map((node) => node.id);
       return serializeCanvas(canvas);
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -631,12 +691,17 @@ async function editCanvas(
   if (error) {
     return { result: `No changes made to ${file.path}. ${error}`, isError: true };
   }
-  return { result: `Updated ${file.path}:\n${summary.map((line) => `- ${line}`).join("\n")}`, isError: false };
+  return {
+    result: `Updated ${file.path}:\n${summary.map((line) => `- ${line}`).join("\n")}`,
+    isError: false,
+    ...(changed.length ? { focus: { path: file.path, nodes: changed } } : {}),
+  };
 }
 
 async function createFile(
   app: App,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
+  changes: ChangeLog | undefined
 ): Promise<ToolResult> {
   const path = normalizePath(requiredString(input.path));
   const content = requiredString(input.content);
@@ -649,9 +714,10 @@ async function createFile(
     return { result: `File already exists: ${path}. Use edit_document to modify it.`, isError: true };
   }
 
-  await ensureParentFolder(app, path);
+  await ensureParentFolder(app, path, changes);
   await app.vault.create(path, content || "");
-  return { result: `Created ${path}.`, isError: false };
+  changes?.created(path, content || "");
+  return { result: `Created ${path}.`, isError: false, focus: { path, from: 0, to: (content || "").length } };
 }
 
 async function listFiles(
@@ -691,7 +757,8 @@ async function listFiles(
 
 async function renameFile(
   app: App,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
+  changes: ChangeLog | undefined
 ): Promise<ToolResult> {
   const path = requiredString(input.path);
   const newPath = requiredString(input.new_path);
@@ -711,16 +778,19 @@ async function renameFile(
     return { result: `A file already exists at: ${normalizedNew}`, isError: true };
   }
 
-  await ensureParentFolder(app, normalizedNew);
+  await ensureParentFolder(app, normalizedNew, changes);
 
   // fileManager.renameFile() updates all internal links automatically
+  const from = file.path;
   await app.fileManager.renameFile(file, normalizedNew);
+  changes?.renamed(from, normalizedNew);
   return { result: `Renamed ${path} to ${normalizedNew}.`, isError: false };
 }
 
 async function deleteFile(
   app: App,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
+  changes: ChangeLog | undefined
 ): Promise<ToolResult> {
   const path = requiredString(input.path);
   if (!path) {
@@ -732,8 +802,10 @@ async function deleteFile(
     return { result: `File not found: ${path}`, isError: true };
   }
 
-  // fileManager.trashFile() respects the user's file deletion preference.
+  // Kept for undo first; trashFile() respects the user's deletion preference.
+  const recordDelete = await changes?.deleting(app, file);
   await app.fileManager.trashFile(file);
+  recordDelete?.();
   return { result: `Moved ${path} to trash.`, isError: false };
 }
 
@@ -763,7 +835,8 @@ async function getProperties(
 
 async function setProperties(
   app: App,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
+  changes: ChangeLog | undefined
 ): Promise<ToolResult> {
   const props = requiredRecord(input.properties);
   if (!props) {
@@ -776,24 +849,26 @@ async function setProperties(
     return { result: path ? `File not found: ${path}` : "No active document open.", isError: true };
   }
 
-  // Use Obsidian's built-in processFrontMatter for safe YAML handling
-  await app.fileManager.processFrontMatter(file, (frontmatter: Record<string, unknown>) => {
-    for (const [key, value] of Object.entries(props)) {
-      if (value === null) {
-        delete frontmatter[key];
-      } else {
-        frontmatter[key] = value;
+  return await withChange(app, file, changes, async () => {
+    // Use Obsidian's built-in processFrontMatter for safe YAML handling
+    await app.fileManager.processFrontMatter(file, (frontmatter: Record<string, unknown>) => {
+      for (const [key, value] of Object.entries(props)) {
+        if (value === null) {
+          delete frontmatter[key];
+        } else {
+          frontmatter[key] = value;
+        }
       }
-    }
+    });
+
+    const setKeys = Object.entries(props).filter(([, v]) => v !== null).map(([k]) => k);
+    const removedKeys = Object.entries(props).filter(([, v]) => v === null).map(([k]) => k);
+    const parts: string[] = [];
+    if (setKeys.length > 0) parts.push(`Set: ${setKeys.join(", ")}`);
+    if (removedKeys.length > 0) parts.push(`Removed: ${removedKeys.join(", ")}`);
+
+    return { result: `Updated properties in ${file.path}. ${parts.join(". ")}.`, isError: false };
   });
-
-  const setKeys = Object.entries(props).filter(([, v]) => v !== null).map(([k]) => k);
-  const removedKeys = Object.entries(props).filter(([, v]) => v === null).map(([k]) => k);
-  const parts: string[] = [];
-  if (setKeys.length > 0) parts.push(`Set: ${setKeys.join(", ")}`);
-  if (removedKeys.length > 0) parts.push(`Removed: ${removedKeys.join(", ")}`);
-
-  return { result: `Updated properties in ${file.path}. ${parts.join(". ")}.`, isError: false };
 }
 
 async function getNoteLinks(
@@ -845,10 +920,28 @@ async function openDocument(
     return { result: `File not found: ${path}`, isError: true };
   }
 
-  // Open in the most recent non-chat leaf so it doesn't replace the sidebar
-  const leaf = app.workspace.getLeaf(false);
-  await leaf.openFile(file);
-  return { result: `Opened ${file.path}.`, isError: false };
+  // The spot to show: a text in a note, or a canvas card.
+  const text = optionalString(input.text);
+  const node = optionalString(input.node_id);
+  let found = "";
+  let target: ViewTarget = { path: file.path };
+  if (node && file.extension === "canvas") {
+    target = { path: file.path, nodes: [node] };
+    found = ` at card ${node}`;
+  } else if (text && file.extension === "md") {
+    const content = await app.vault.cachedRead(file);
+    let at = content.indexOf(text);
+    if (at === -1) at = content.toLowerCase().indexOf(text.toLowerCase());
+    if (at !== -1) {
+      target = { path: file.path, from: at, to: at + text.length };
+      found = " at the text";
+    } else {
+      found = "; the text wasn't found, so it opened at the top";
+    }
+  }
+  // The user asked to see it: bring it forward, also on a phone.
+  await showInView(app, target, { reveal: true });
+  return { result: `Showed ${file.path}${found}.`, isError: false };
 }
 
 async function askUser(

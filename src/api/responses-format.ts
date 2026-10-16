@@ -1,6 +1,7 @@
-import type { ContentBlock, ImageAttachment, Provider, UnifiedMessage, UnifiedResponse } from "../types";
+import type { ContentBlock, FileAttachment, ImageAttachment, Provider, UnifiedMessage, UnifiedResponse } from "../types";
 import { ProviderError } from "./errors";
 import { withoutOldToolImages } from "../agent/history";
+import { fileAsText, isSentAsFile } from "../files/attachments";
 
 /** Encode both fresh input and restored history without losing tool pairs. */
 export function buildResponsesInput(
@@ -31,6 +32,8 @@ export function buildResponsesInput(
           : { type: "input_text", text: block.text });
       } else if (block.type === "image" && block.image && message.role === "user") {
         content.push(inputImage(block.image));
+      } else if (block.type === "file" && block.file && message.role === "user") {
+        content.push(inputFile(block.file));
       } else if (block.type === "tool_use" && block.id && block.name) {
         flush();
         items.push({ type: "function_call", call_id: block.id, name: block.name, arguments: JSON.stringify(block.input ?? {}) });
@@ -45,21 +48,36 @@ export function buildResponsesInput(
 }
 
 /**
- * A tool result's `output`. With images it is a content array: the Responses
- * API allows `output` to be a string or a list of `input_text`,
+ * A tool result's `output`. With images or files it is a content array: the
+ * Responses API allows `output` to be a string or a list of `input_text`,
  * `input_image` and `input_file` items (function_call_output in the API
  * reference). The ChatGPT route takes the same request format, so both
- * providers get the image inside the result rather than in an extra user
- * message.
+ * providers get the image or file inside the result rather than in an
+ * extra user message.
  */
 function functionOutput(block: ContentBlock): string | Record<string, unknown>[] {
   const text = block.content ?? "";
-  if (!block.images?.length) return text;
-  return [{ type: "input_text", text: text || "(image)" }, ...block.images.map(inputImage)];
+  if (!block.images?.length && !block.files?.length) return text;
+  return [
+    { type: "input_text", text: text || "(attached)" },
+    ...(block.images ?? []).map(inputImage),
+    ...(block.files ?? []).map(inputFile),
+  ];
 }
 
 function inputImage(image: ImageAttachment): Record<string, unknown> {
   return { type: "input_image", image_url: `data:${image.mediaType};base64,${image.data}`, detail: "auto" };
+}
+
+/**
+ * A file: PDF and Office files as `input_file` with inline base64 data (the
+ * model reads them itself, PDFs with their page images), text files as text.
+ */
+function inputFile(file: FileAttachment): Record<string, unknown> {
+  if (isSentAsFile(file)) {
+    return { type: "input_file", filename: file.fileName, file_data: `data:${file.mediaType};base64,${file.data}` };
+  }
+  return { type: "input_text", text: fileAsText(file) };
 }
 
 /** Preserve native reasoning/search/refusal items even when they have no UI block. */

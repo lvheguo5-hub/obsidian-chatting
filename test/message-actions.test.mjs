@@ -27,8 +27,8 @@ function fakeChat() {
     showThinking() {}, hideThinking() {},
     showAskUser(question) { chat.addAssistantMessage(question); return new Promise(resolve => { chat.askUser = resolve; }); },
     cancelAskUser() { const resolve = chat.askUser; chat.askUser = null; resolve?.(''); },
-    setInputEnabled() {}, setBusy(value) { chat.busy = value; },
-    clearMessages() { chat.shown = []; }, focus() {}, setModel() {},
+    setInputEnabled() {}, setBusy(value) { chat.busy = value; }, foldTurn() {},
+    clearMessages() { chat.shown = []; }, focus() {}, setModel() {}, setTitle() {},
     setSelection() {}, getSelection: () => null,
     editable: () => true, setEditable(check) { chat.editable = check; },
   };
@@ -268,12 +268,13 @@ test('The cut is saved at once, and the saved chat after the new turn restores c
 
   await view.editMessage(ids[1], 'Edited');
   // Saved before the new turn started: only the first turn is left.
-  assert.deepEqual(writes[3].chatHistory.map(e => e.text), ['Q1', 'A1']);
-  assert.deepEqual(writes[3].agentMessages.filter(m => m.turnId).map(m => m.turnId), [ids[0]]);
+  const [cut] = writes[3].conversations;
+  assert.deepEqual(cut.chatHistory.map(e => e.text), ['Q1', 'A1']);
+  assert.deepEqual(cut.agentMessages.filter(m => m.turnId).map(m => m.turnId), [ids[0]]);
 
   await until(() => writes.length === 5);
   const final = writes.at(-1);
-  assert.deepEqual(final.chatHistory.map(e => e.text), ['Q1', 'A1', 'Edited', 'A4']);
+  assert.deepEqual(final.conversations[0].chatHistory.map(e => e.text), ['Q1', 'A1', 'Edited', 'A4']);
   const restored = await setup('anthropic', JSON.parse(JSON.stringify(final)));
   const restoredIds = turnIdsOf(restored.plugin);
   assert.deepEqual(restoredIds.ui, restoredIds.agent);
