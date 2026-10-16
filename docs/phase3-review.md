@@ -1,6 +1,6 @@
 # Phase 3: PRs #31–#38
 
-The author stack is cumulative, ending at `425d0c4beb12888197bfc40bff4577f8864a6872`. This branch starts at the Phase 2 candidate `5b419bf85d11d8b0bab9cb7c5a8c2c639f730441` and preserves its image limits, selection fingerprints, provider replay fixes, migration and validation repairs. Phase 2 stays unchanged while its official Community scan is pending.
+The author stack is cumulative, ending at `425d0c4beb12888197bfc40bff4577f8864a6872`. This branch starts at the Phase 2 candidate `5b419bf85d11d8b0bab9cb7c5a8c2c639f730441` and preserves its image limits, selection fingerprints, provider replay fixes, migration and validation repairs. Phase 2 was merged in PR #49 and published as 0.6.0; its formal Community release scan is pending.
 
 ## Scope
 
@@ -48,4 +48,4 @@ Native reports are in `/Volumes/StudioSSD/Developer/BuildScratch/ChattingPhase3`
 
 ## Release state
 
-0.7.0 is candidate metadata on this development branch. The development branch is pushed with code integration commit `c441b1eea157330af57d7483dc74e71372f2b026`; its clean archive rebuild passed all 416 tests and checks, and all three asset SHA-256 values match. No third-phase integration PR, main-branch merge, tag or release has been created. The existing second-phase PR remains the only active integration/release PR. External review and official scanning remain required before release.
+0.7.0 is candidate metadata on this development branch. The development branch is pushed with code integration commit `c441b1eea157330af57d7483dc74e71372f2b026`; its clean archive rebuild passed all 416 tests and checks, and all three asset SHA-256 values match. The branch is ready for its single Phase 3 integration PR, fresh external review, CI and an official Community Preview for the exact PR head. No Phase 3 main-branch merge, tag or release has been created. The Phase 2 integration PR is already merged; its formal release scan may temporarily occupy the Community scan slot. External review and official scanning remain required before release.
