@@ -136,3 +136,27 @@ test('Settings: the row works in both settings paths; Copy and Clear', async () 
   tab.display();
   assert.equal(drawn.length, 1);
 });
+
+test('Copy and Clear wait for pending log writes, and a failed write does not poison later writes', async () => {
+  const { plugin, files } = pluginWith({ debugLog: true });
+  await plugin.loadSettings();
+  let finish;
+  plugin.app.vault.adapter.append = (path, entry) => new Promise(resolve => {
+    finish = () => { files.set(path, (files.get(path) ?? '') + entry); resolve(); };
+  });
+  api.debug.debugLog(plugin.app, 'PENDING', {});
+  await tick();
+  let cleared = false;
+  const clearing = api.debug.clearDebugLog(plugin.app).then(() => { cleared = true; });
+  await tick();
+  assert.equal(cleared, false);
+  finish();
+  await clearing;
+  assert.equal(files.has(LOG), false);
+  plugin.app.vault.adapter.append = async () => { throw new Error('disk full'); };
+  api.debug.debugLog(plugin.app, 'FAILED', {});
+  await api.debug.readDebugLog(plugin.app);
+  plugin.app.vault.adapter.append = async (path, entry) => { files.set(path, entry); };
+  api.debug.debugLog(plugin.app, 'RECOVERED', {});
+  assert.match(await api.debug.readDebugLog(plugin.app), /RECOVERED/);
+});

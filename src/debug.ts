@@ -7,6 +7,15 @@
 import type { App } from "obsidian";
 
 let enabled = false;
+const pending = new WeakMap<App, Promise<void>>();
+
+function enqueue(app: App, operation: () => Promise<void>): Promise<void> {
+  const write = (pending.get(app) ?? Promise.resolve()).then(operation);
+  const settled = write.catch(() => undefined);
+  pending.set(app, settled);
+  void settled.then(() => { if (pending.get(app) === settled) pending.delete(app); });
+  return write;
+}
 
 /** Follows the "Debug log" setting. */
 export function setDebugLogging(on: boolean): void {
@@ -23,7 +32,7 @@ export function debugLog(app: App, label: string, data: unknown): void {
     const timestamp = new Date().toISOString();
     const entry = `\n--- ${label} [${timestamp}] ---\n${JSON.stringify(data, null, 2)}\n`;
     // Use the adapter to write into the current vault config folder.
-    void app.vault.adapter.append(debugLogPath(app), entry);
+    void enqueue(app, () => app.vault.adapter.append(debugLogPath(app), entry)).catch(() => undefined);
   } catch {
     // Debug logging should never break the app
   }
@@ -33,6 +42,7 @@ export function debugLog(app: App, label: string, data: unknown): void {
 export async function readDebugLog(app: App): Promise<string> {
   const path = debugLogPath(app);
   try {
+    await pending.get(app);
     return await app.vault.adapter.exists(path) ? await app.vault.adapter.read(path) : "";
   } catch {
     return "";
@@ -41,5 +51,7 @@ export async function readDebugLog(app: App): Promise<string> {
 
 export async function clearDebugLog(app: App): Promise<void> {
   const path = debugLogPath(app);
-  if (await app.vault.adapter.exists(path)) await app.vault.adapter.remove(path);
+  await enqueue(app, async () => {
+    if (await app.vault.adapter.exists(path)) await app.vault.adapter.remove(path);
+  });
 }

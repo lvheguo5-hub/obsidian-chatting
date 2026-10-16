@@ -71,6 +71,17 @@ test('read_canvas lists groups with their nodes, ungrouped nodes, then edges', a
   ].join('\n'));
 });
 
+test('Malformed canvas geometry and duplicate IDs fail before any edit is written', async () => {
+  const valid = { id: 'a', type: 'text', text: 'Keep', x: 0, y: 0, width: 100, height: 60 };
+  for (const nodes of [[{ ...valid, width: null }], [{ ...valid, x: '0' }], [{ ...valid, height: -1 }], [valid, { ...valid }]]) {
+    const source = JSON.stringify({ nodes, edges: [] });
+    const { app, files } = canvasVault({ 'Board.canvas': source });
+    const result = await edit(app, [{ op: 'update_node', id: 'a', text: 'Changed' }]);
+    assert.equal(result.isError, true);
+    assert.equal(files.get('Board.canvas'), source);
+  }
+});
+
 test('read_canvas shortens long text and rejects non-canvas paths', async () => {
   const long = JSON.stringify({ nodes: [{ id: 'x', type: 'text', text: 'word '.repeat(100), x: 0, y: 0, width: 250, height: 60 }], edges: [] });
   const { app } = canvasVault({ 'Long.canvas': long, 'Empty.canvas': '' });

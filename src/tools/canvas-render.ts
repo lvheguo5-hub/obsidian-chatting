@@ -439,27 +439,38 @@ function drawTag(ctx: DrawContext, tag: string, node: CanvasNode, layout: Canvas
 
 /** Word-wrapped lines that fit `maxWidth`, at most `maxLines` (the last ends with … if cut). */
 export function wrapText(ctx: Pick<DrawContext, "measureText">, text: string, maxWidth: number, maxLines: number): string[] {
+  if (maxLines <= 0) return [];
   const fits = (s: string) => ctx.measureText(s).width <= maxWidth;
   const lines: string[] = [];
-  for (const paragraph of text.split("\n")) {
-    let line = "";
-    for (const word of paragraph.split(/\s+/).filter(Boolean)) {
-      const candidate = line ? `${line} ${word}` : word;
-      if (fits(candidate)) {
-        line = candidate;
-        continue;
+  // Lazy layout stops at one line beyond the visible card, rather than
+  // measuring an entire long paragraph that will be clipped away.
+  function* wrapped(): Generator<string> {
+    for (const paragraph of text.split("\n")) {
+      let line = "";
+      for (const word of paragraph.split(/\s+/).filter(Boolean)) {
+        const candidate = line ? `${line} ${word}` : word;
+        if (fits(candidate)) {
+          line = candidate;
+          continue;
+        }
+        if (line) yield line;
+        let rest = word;
+        while (!fits(rest) && rest.length > 1) {
+          let low = 1, high = rest.length - 1;
+          while (low < high) {
+            const middle = Math.ceil((low + high) / 2);
+            if (fits(rest.slice(0, middle))) low = middle;
+            else high = middle - 1;
+          }
+          yield rest.slice(0, low);
+          rest = rest.slice(low);
+        }
+        line = rest;
       }
-      if (line) lines.push(line);
-      // A word wider than the card is broken by characters.
-      let rest = word;
-      while (!fits(rest) && rest.length > 1) {
-        let cut = rest.length - 1;
-        while (cut > 1 && !fits(rest.slice(0, cut))) cut--;
-        lines.push(rest.slice(0, cut));
-        rest = rest.slice(cut);
-      }
-      line = rest;
+      yield line;
     }
+  }
+  for (const line of wrapped()) {
     lines.push(line);
     if (lines.length > maxLines) break;
   }

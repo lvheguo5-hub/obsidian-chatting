@@ -57,8 +57,19 @@ export function parseCanvas(raw: string): CanvasData {
   if (!isRecordList(nodes) || !isRecordList(edges)) {
     throw new Error("'nodes' and 'edges' must be arrays of objects");
   }
+  const ids = new Set<string>();
+  for (const item of [...nodes, ...edges]) {
+    if (typeof item.id !== "string" || !item.id || ids.has(item.id)) throw new Error("canvas IDs must be non-empty and unique");
+    ids.add(item.id);
+  }
+  for (const node of nodes) {
+    if (typeof node.type !== "string" || ![node.x, node.y, node.width, node.height].every(value => typeof value === "number" && Number.isFinite(value))
+      || (node.width as number) <= 0 || (node.height as number) <= 0) throw new Error("canvas nodes need a type and finite coordinates with positive width and height");
+  }
+  for (const edge of edges) {
+    if (typeof edge.fromNode !== "string" || typeof edge.toNode !== "string") throw new Error("canvas edges need fromNode and toNode IDs");
+  }
   // Spreading keeps the original key order; missing arrays are appended.
-  // The fields the spec requires are trusted, as Obsidian wrote them.
   return { ...data, nodes: nodes as CanvasNode[], edges: edges as CanvasEdge[] };
 }
 

@@ -51,7 +51,7 @@ function comparable(value: unknown): string {
 
 /** The property under `key` (exact name first, else ignoring case). */
 function property(properties: Record<string, unknown>, key: string): { found: boolean; value: unknown } {
-  if (key in properties) return { found: true, value: properties[key] };
+  if (Object.prototype.hasOwnProperty.call(properties, key)) return { found: true, value: properties[key] };
   const match = Object.keys(properties).find((name) => name.toLowerCase() === key.toLowerCase());
   return match ? { found: true, value: properties[match] } : { found: false, value: undefined };
 }

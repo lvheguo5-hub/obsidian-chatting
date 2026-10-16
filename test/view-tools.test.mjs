@@ -288,6 +288,15 @@ test('colours, short IDs, plain text and wrapping', () => {
   assert.deepEqual(R.wrapText(ctx, 'abcdefghijklmnop', 40, 5), ['abcde', 'fghij', 'klmno', 'p']);
 });
 
+test('canvas previews stop wrapping after the visible lines, even for a long unbroken word', () => {
+  let measured = 0;
+  const ctx = { measureText: value => { measured++; return { width: value.length * 8 }; } };
+  const lines = R.wrapText(ctx, '字'.repeat(4000), 80, 2);
+  assert.equal(lines.length, 2);
+  assert.match(lines[1], /…$/);
+  assert.ok(measured < 200, `Only visible lines need layout; measured ${measured} times`);
+});
+
 test('the renderer draws groups, cards, images, edges and tags', async () => {
   const loaded = [];
   const { surface, legend, layout } = await R.renderCanvas(board(), {

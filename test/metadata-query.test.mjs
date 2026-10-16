@@ -60,6 +60,11 @@ test('query_notes: no filter is an error; no match says so', async () => {
   assert.deepEqual(await query({ tags: ['missing'] }), { result: 'No notes match.', isError: false });
 });
 
+test('query_notes only matches properties owned by the frontmatter', async () => {
+  assert.deepEqual(paths(await query({ properties: { toString: null } })), []);
+  assert.deepEqual(paths(await query({ properties: { constructor: null } })), []);
+});
+
 test('list_metadata: tags and properties with counts, most used first, without Obsidian\'s position', async () => {
   const { result, isError } = await api.executeTool(metadataApp(), 'list_metadata', {}, async () => '');
   assert.equal(isError, false);

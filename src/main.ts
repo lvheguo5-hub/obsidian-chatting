@@ -718,14 +718,19 @@ function isPersistedChatState(value: unknown): value is PersistedChatState {
   if (Array.isArray(value.chatHistory) && !value.chatHistory.every(entry => isChatHistoryEntry(entry, imagesWithData))) return false;
   if (Array.isArray(value.agentMessages) && !value.agentMessages.every(message =>
     isRecord(message) && (message.role === "user" || message.role === "assistant") &&
+    (!("turnId" in message) || typeof message.turnId === "string") &&
     (typeof message.content === "string" || (Array.isArray(message.content) &&
-      message.content.every(block => isRecord(block) && typeof block.type === "string"))))) return false;
+      message.content.every(block => isRecord(block) && typeof block.type === "string" &&
+        (block.type !== "image" || isSavedImage(block.image, true)) &&
+        (!("images" in block) || (Array.isArray(block.images) && block.images.every(image => isSavedImage(image, true))))))))) return false;
   return !("savedAt" in value) || (typeof value.savedAt === "number" && Number.isFinite(value.savedAt) && value.savedAt >= 0);
 }
 
 function isChatHistoryEntry(entry: unknown, imagesWithData = true): boolean {
   if (!isRecord(entry) || Array.isArray(entry) || typeof entry.type !== "string") return false;
   if ("text" in entry && typeof entry.text !== "string") return false;
+  if ("turnId" in entry && typeof entry.turnId !== "string") return false;
+  if ("selection" in entry && !isSavedSelection(entry.selection)) return false;
   if (["user", "assistant", "error"].includes(entry.type) && typeof entry.text !== "string") return false;
   if (entry.type === "tool-result" &&
     (typeof entry.toolName !== "string" || entry.toolName.length === 0 || !("toolResult" in entry))) return false;
@@ -734,17 +739,27 @@ function isChatHistoryEntry(entry: unknown, imagesWithData = true): boolean {
   if ("toolResult" in entry && (!isRecord(entry.toolResult) || Array.isArray(entry.toolResult) ||
     typeof entry.toolResult.result !== "string" || typeof entry.toolResult.isError !== "boolean")) return false;
   if ("images" in entry) {
-    if (!Array.isArray(entry.images) || !entry.images.every(image =>
-      isRecord(image) && !Array.isArray(image) && typeof image.id === "string" &&
-      typeof image.fileName === "string" && typeof image.mediaType === "string" &&
-      (typeof image.data === "string" || (!imagesWithData && !("data" in image))) && typeof image.sizeBytes === "number" &&
-      Number.isFinite(image.sizeBytes) && image.sizeBytes >= 0)) return false;
+    if (!Array.isArray(entry.images) || !entry.images.every(image => isSavedImage(image, imagesWithData))) return false;
     // Svelte's keyed image list cannot render duplicate attachment IDs.
     const imageIds = entry.images.map((image: unknown) =>
       isRecord(image) && typeof image.id === "string" ? image.id : "");
     if (new Set(imageIds).size !== entry.images.length) return false;
   }
   return true;
+}
+
+function isSavedImage(image: unknown, withData: boolean): boolean {
+  return isRecord(image) && !Array.isArray(image) && typeof image.id === "string" &&
+    typeof image.fileName === "string" && typeof image.mediaType === "string" &&
+    (typeof image.data === "string" || (!withData && !("data" in image))) && typeof image.sizeBytes === "number" &&
+    Number.isFinite(image.sizeBytes) && image.sizeBytes >= 0;
+}
+
+function isSavedSelection(value: unknown): boolean {
+  if (!isRecord(value) || Array.isArray(value) || typeof value.filePath !== "string" || typeof value.text !== "string") return false;
+  if ("sourceText" in value && typeof value.sourceText !== "string") return false;
+  return ["from", "occurrence"].every(key => !(key in value) ||
+    (typeof value[key] === "number" && Number.isInteger(value[key]) && value[key] >= 0));
 }
 
 function normalizeSettings(value: unknown): Partial<ChatSettings> {
