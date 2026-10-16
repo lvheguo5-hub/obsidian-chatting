@@ -102,3 +102,22 @@ test('math fences use the active list content indentation', () => {
   const literal='Example:\n\n    ```math\n    x^2\n    ```';
   assert.equal(normalize(literal),literal);
 });
+
+test('fenced code in list items and blockquotes preserves literal math', () => {
+  for (const source of [
+    '- ```text\n  \\(literal\\)\n  \\[literal\\]\n  ```',
+    '> ```text\n> \\(literal\\)\n> \\[literal\\]\n> ```',
+    '> - ~~~text\n>   \\(literal\\)\n>   ~~~',
+    '> > ```text\n> > \\(literal\\)\n> > ```',
+    '> ```text\n> > ```\n> \\(literal\\)\n> ```',
+    '- ```text\n  \\(literal\\)',
+  ]) assert.equal(normalize(source), source);
+  assert.equal(normalize('> ```text\n> \\(literal\\)\n\nOutside \\(x\\)'), '> ```text\n> \\(literal\\)\n\nOutside $x$');
+  assert.equal(normalize('- ```text\n  \\(literal\\)\n\nOutside \\(x\\)'), '- ```text\n  \\(literal\\)\n\nOutside $x$');
+});
+
+test('container math fences keep the list and quote prefixes', () => {
+  assert.equal(normalize('- ```math\n  x^2\n  ```'), '- $$\n  x^2\n  $$');
+  assert.equal(normalize('> ```math\n> x^2\n> ```'), '> $$\n> x^2\n> $$');
+  assert.equal(normalize('> - ```math\n>   x^2\n>   ```'), '> - $$\n>   x^2\n>   $$');
+});

@@ -20,55 +20,84 @@ export function normalizeMathMarkdown(source: string): string {
   const lines = source.split(/\r?\n/);
   const out: string[] = [];
   let prose: string[] = [];
-  const listIndents: number[] = [];
+  const containerLists = new Map<number, number[]>();
   const flushProse = () => {
     if (prose.length > 0) out.push(normalizeProse(prose.join("\n")));
     prose = [];
   };
 
   for (let i = 0; i < lines.length; i++) {
-    const indentation = indentWidth(lines[i]);
-    if (lines[i].trim()) {
+    const container = quoteContainer(lines[i]);
+    const line = container.content;
+    const listIndents = containerLists.get(container.depth) ?? [];
+    containerLists.set(container.depth, listIndents);
+    const indentation = indentWidth(line);
+    if (line.trim()) {
       while (listIndents.length && indentation < listIndents[listIndents.length - 1]) listIndents.pop();
     }
     const codeIndent = (listIndents.at(-1) ?? 0) + 4;
     // Indented code cannot interrupt a paragraph. A list item's own content
     // indentation is not code; it needs another four columns.
-    if (lines[i].trim() && indentation >= codeIndent && (i === 0 || !lines[i - 1].trim())) {
+    if (line.trim() && indentation >= codeIndent && (i === 0 || !quoteContainer(lines[i - 1]).content.trim())) {
       flushProse();
       let end = i + 1;
-      while (end < lines.length && (!lines[end].trim() || indentWidth(lines[end]) >= codeIndent)) end++;
+      while (end < lines.length) {
+        const next = quoteContainer(lines[end], container.depth);
+        if (next.depth !== container.depth || (next.content.trim() && indentWidth(next.content) < codeIndent)) break;
+        end++;
+      }
       out.push(...lines.slice(i, end));
       i = end - 1;
       continue;
     }
-    const list = /^[ \t]*(?:[-+*]|\d+[.)])[ \t]+/.exec(lines[i]);
+    const list = /^[ \t]*(?:[-+*]|\d+[.)])[ \t]+/.exec(line);
     if (list) listIndents.push(indentWidth(list[0].replace(/[^ \t]/g, " ")));
     const fenceBase = listIndents.at(-1) ?? 0;
-    const open = FENCE_OPEN.exec(lines[i]);
+    const open = FENCE_OPEN.exec(list ? line.slice(list[0].length) : line);
     // A backtick fence's info string can't contain backticks (CommonMark).
-    if (!open || indentation > fenceBase + 3 || (open[2][0] === "`" && open[3].includes("`"))) {
+    if (!open || (list ? fenceBase + indentWidth(open[1]) : indentation) > fenceBase + 3 || (open[2][0] === "`" && open[3].includes("`"))) {
       prose.push(lines[i]);
       continue;
     }
     const [, indent, fence, info] = open;
     let end = i + 1;
-    while (end < lines.length && !closesFence(lines[end], fence, fenceBase)) end++;
+    let closed = false;
+    while (end < lines.length) {
+      const next = quoteContainer(lines[end], container.depth);
+      // Fenced code ends with its container even without a closing fence.
+      if (next.depth !== container.depth || (next.content.trim() && indentWidth(next.content) < fenceBase)) break;
+      if (closesFence(next.content, fence, fenceBase)) { closed = true; break; }
+      end++;
+    }
     const body = lines.slice(i + 1, end);
     flushProse();
 
-    if (end < lines.length && MATH_INFO.test(info) && body.join("").trim()) {
-      while (!body[0].trim()) body.shift();
-      while (!body[body.length - 1].trim()) body.pop();
-      out.push(`${indent}$$`, ...body, `${indent}$$`);
+    if (closed && MATH_INFO.test(info) && body.some(line => quoteContainer(line).content.trim())) {
+      while (!quoteContainer(body[0]).content.trim()) body.shift();
+      while (!quoteContainer(body[body.length - 1]).content.trim()) body.pop();
+      const opening = container.prefix + (list?.[0] ?? "") + indent;
+      const closing = container.prefix + (list ? " ".repeat(fenceBase) : "") + indent;
+      out.push(`${opening}$$`, ...body, `${closing}$$`);
     } else {
       // Ordinary code (or an unclosed fence, which runs to the end) is kept as is.
-      out.push(...lines.slice(i, end + 1));
+      out.push(...lines.slice(i, end + (closed ? 1 : 0)));
     }
-    i = end;
+    i = closed ? end : end - 1;
   }
   flushProse();
   return out.join("\n");
+}
+
+function quoteContainer(line: string, limit = Infinity): { prefix: string; content: string; depth: number } {
+  let prefix = "", depth = 0, content = line;
+  while (depth < limit) {
+    const marker = /^ {0,3}>[ \t]?/.exec(content);
+    if (!marker) break;
+    prefix += marker[0];
+    content = content.slice(marker[0].length);
+    depth++;
+  }
+  return { prefix, content, depth };
 }
 
 function indentWidth(line: string): number {
