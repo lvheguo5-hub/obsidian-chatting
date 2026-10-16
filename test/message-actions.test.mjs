@@ -345,3 +345,20 @@ test('Copy puts the answer\'s Markdown source on the clipboard', async () => {
     if (previous) Object.defineProperty(globalThis, 'navigator', previous); else delete globalThis.navigator;
   }
 });
+
+for (const answer of ['Q1', 'tail']) test(`Legacy migration distinguishes an ask_user answer matching the prompt (${answer})`, async () => {
+  const prompt = answer === 'tail' ? 'Q1\n\ntail' : 'Q1';
+  const saved = {
+    chatHistory:[{type:'user',text:prompt},{type:'assistant',text:'Which note?'},{type:'user',text:answer},{type:'assistant',text:'Done'}],
+    agentMessages:[{role:'user',content:`ctx\n\n${prompt}`},{role:'assistant',content:[call('ask','ask_user',{question:'Which note?'})]},
+      {role:'user',content:[{type:'tool_result',tool_use_id:'ask',content:answer,is_error:false}]},{role:'assistant',content:[text('Done')]}],
+  };
+  const {plugin,view}=await setup('anthropic',saved);
+  assert.ok(plugin.chatHistory[0].turnId);
+  assert.equal(plugin.chatHistory[2].turnId,undefined);
+  assert.equal(plugin.chatHistory[0].turnId,plugin.agent.exportMessages()[0].turnId);
+  const requests=answering('anthropic');
+  await view.regenerate();
+  assert.ok(JSON.stringify(requests[0].messages).includes(prompt.replace(/\n/g,'\\n')));
+  assert.deepEqual(toolUseIds(requests[0]),[]);
+});

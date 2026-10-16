@@ -127,25 +127,51 @@ function sentText(message: UnifiedMessage): string {
  * turn added one user entry to the view's history and one turn start to
  * the agent's, so they are paired from the end. A user entry whose text
  * doesn't end the turn start's text is an `ask_user` answer, no turn of its
- * own: it gets no ID. Entries older than the (trimmed) agent history get
+ * own: it gets no ID. Ordered ask_user call/result events distinguish answers
+ * even when their text matches a prompt. Entries older than the (trimmed) agent history get
  * IDs of their own. Only IDs are added; nothing else changes.
  */
 export function assignLegacyTurnIds(entries: ChatHistoryEntry[], messages: UnifiedMessage[]): void {
   if (entries.some(entry => entry.turnId) || messages.some(message => message.turnId)) return;
-  const starts = messages.filter(startsUserTurn);
-  let start = starts.length - 1;
+  type Event = { kind: "start"; message: UnifiedMessage }
+    | { kind: "answer"; question: string; answer: string };
+  const events: Event[] = [];
+  const questions = new Map<string, string>();
+  for (const message of messages) {
+    if (startsUserTurn(message)) events.push({ kind: "start", message });
+    if (typeof message.content === "string") continue;
+    for (const block of message.content) {
+      if (message.role === "assistant" && block.type === "tool_use" && block.name === "ask_user" && block.id
+        && typeof block.input?.question === "string") questions.set(block.id, block.input.question.trim());
+      if (message.role === "user" && block.type === "tool_result" && block.tool_use_id && block.content && !block.is_error) {
+        const question = questions.get(block.tool_use_id);
+        if (question) events.push({ kind: "answer", question, answer: block.content });
+      }
+    }
+  }
+  let next = events.length - 1;
   let count = 0;
   for (let index = entries.length - 1; index >= 0; index--) {
     const entry = entries[index];
     if (entry.type !== "user") continue;
-    if (start < 0) {
+    let isAnswer = false;
+    // The callback stores the question immediately before its UI answer.
+    // Consume these events in API order, not as a global set of answer texts.
+    while (next >= 0 && events[next].kind === "answer") {
+      const event = events[next--] as Extract<Event, { kind: "answer" }>;
+      if (entry.text === event.answer && entries[index - 1]?.type === "assistant"
+        && entries[index - 1].text === event.question) { isAnswer = true; break; }
+    }
+    if (isAnswer) continue;
+    if (next < 0) {
       entry.turnId = `legacy-${++count}`;
       continue;
     }
-    const sent = sentText(starts[start]);
+    const event = events[next] as Extract<Event, { kind: "start" }>;
+    const sent = sentText(event.message);
     const text = entry.text ?? "";
     if (sent !== text && !sent.endsWith(`\n\n${text}`)) continue;
-    entry.turnId = starts[start].turnId = `legacy-${++count}`;
-    start--;
+    entry.turnId = event.message.turnId = `legacy-${++count}`;
+    next--;
   }
 }

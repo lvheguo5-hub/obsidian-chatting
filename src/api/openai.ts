@@ -9,6 +9,7 @@ import type {
   ProviderReplay,
 } from "../types";
 
+import { withoutOldToolImages } from "../agent/history";
 import { buildResponsesInput, fromResponsesOutput } from "./responses-format";
 
 const DEFAULT_OPENAI_URL = "https://api.openai.com";
@@ -45,13 +46,17 @@ export async function sendOpenAIMessage(
 
   const identity = await catalogIdentity("openai", settings.apiKey);
   const previous = conversations.get(messages);
-  const canChain = previous?.model === model && previous.apiKey === settings.apiKey &&
+  const prepared = withoutOldToolImages(messages);
+  // Omitted images also have to leave the server-side context. A response
+  // cursor still retains them, so replay whenever the full history is pruned.
+  const imagesPruned = prepared.some((message, index) => message !== messages[index]);
+  const canChain = !imagesPruned && previous?.model === model && previous.apiKey === settings.apiKey &&
     previous.messages.length < messages.length &&
     previous.messages.every((message, index) => message === messages[index]) &&
     messages[previous.messages.length]?.role === "assistant" &&
     messages[previous.messages.length]?.replay === previous.replay;
   // Rebuilt/restored histories include native response items and tool pairs.
-  const input = buildResponsesInput(canChain ? messages.slice(previous.messages.length + 1) : messages, "openai", model, identity);
+  const input = buildResponsesInput(canChain ? messages.slice(previous.messages.length + 1) : prepared, "openai", model, identity);
 
   const body: Record<string, unknown> = {
     model,
