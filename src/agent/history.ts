@@ -19,11 +19,14 @@ export function trimHistory(messages: UnifiedMessage[], limit: number): UnifiedM
 
 /** Tool results of the last 2 user turns keep their images when sent. */
 export const TOOL_IMAGE_TURNS = 2;
+export const MAX_TOOL_IMAGES = 4;
+export const MAX_TOOL_IMAGE_BYTES = 10 * 1024 * 1024;
 
 /**
  * The history as sent to a provider: tool results older than the last
  * `turns` user turns lose their images (`view_image`, `view_canvas`) and
  * say so in their text, so a full replay doesn't send every image again.
+ * Within those turns only the newest 4 tool images fitting 10 MiB are sent.
  * Images the user attached stay. Nothing is changed in place; unchanged
  * messages are the same objects.
  */
@@ -36,26 +39,51 @@ export function withoutOldToolImages(messages: UnifiedMessage[], turns = TOOL_IM
     }
   }
   const toolNames = new Map<string, string>();
-  for (const message of messages.slice(0, Math.max(cutoff, 0))) {
+  for (const message of messages) {
     if (typeof message.content === "string") continue;
     for (const block of message.content) {
       if (block.type === "tool_use" && block.id && block.name) toolNames.set(block.id, block.name);
     }
   }
-  return messages.map((message, index) => {
-    if (index >= cutoff || typeof message.content === "string" ||
-      !message.content.some((block) => block.type === "tool_result" && block.images?.length)) return message;
-    return {
-      ...message,
-      content: message.content.map((block): ContentBlock => {
-        if (block.type !== "tool_result" || !block.images?.length) return block;
-        const { images, ...rest } = block;
-        const what = images.length === 1 ? "image" : `${images.length} images`;
-        const tool = toolNames.get(block.tool_use_id ?? "") ?? "a tool";
-        const note = `[${what} from ${tool} omitted to save context]`;
-        return { ...rest, content: rest.content ? `${rest.content}\n\n${note}` : note };
-      }),
-    };
+  let count = 0;
+  let bytes = 0;
+  // Walk newest first. Track positions rather than image IDs: saved or provider
+  // data may repeat IDs, and each transmitted occurrence consumes the budget.
+  const kept = new Map<ContentBlock, number[]>();
+  for (let index = messages.length - 1; index >= Math.max(0, cutoff); index--) {
+    const content = messages[index].content;
+    if (typeof content === "string") continue;
+    for (let b = content.length - 1; b >= 0; b--) {
+      const block = content[b];
+      if (block.type !== "tool_result" || !block.images?.length) continue;
+      const positions: number[] = [];
+      for (let i = block.images.length - 1; i >= 0; i--) {
+        // Do not trust the persisted sizeBytes metadata for request limits.
+        const size = Math.ceil(block.images[i].data.length * 3 / 4);
+        if (count >= MAX_TOOL_IMAGES || bytes + size > MAX_TOOL_IMAGE_BYTES) continue;
+        count++; bytes += size;
+        positions.unshift(i);
+      }
+      kept.set(block, positions);
+    }
+  }
+  return messages.map(message => {
+    if (typeof message.content === "string") return message;
+    let changed = false;
+    const content = message.content.map((block): ContentBlock => {
+      if (block.type !== "tool_result" || !block.images?.length) return block;
+      const positions = kept.get(block) ?? [];
+      if (positions.length === block.images.length) return block;
+      changed = true;
+      const { images, ...rest } = block;
+      const omitted = images.length - positions.length;
+      const what = omitted === 1 ? "image" : `${omitted} images`;
+      const tool = toolNames.get(block.tool_use_id ?? "") ?? "a tool";
+      const note = `[${what} from ${tool} omitted to save context]`;
+      return { ...rest, content: rest.content ? `${rest.content}\n\n${note}` : note,
+        ...(positions.length ? { images: positions.map(i => images[i]) } : {}) };
+    });
+    return changed ? { ...message, content } : message;
   });
 }
 

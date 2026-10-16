@@ -58,10 +58,18 @@ async function unlinkedMentions(app: App, file: TFile): Promise<string> {
     if (!text) continue;
     const skipped = skippedRanges(app.metadataCache.getFileCache(note));
     const lines = new Set<number>();
+    let line = 0;
+    let newline = text.indexOf("\n");
+    let range = 0;
     for (const match of text.matchAll(pattern)) {
       const at = match.index ?? 0;
-      if (skipped.some(([start, end]) => at < end && at + match[0].length > start)) continue;
-      lines.add(lineAt(text, at));
+      while (newline !== -1 && newline < at) {
+        line++;
+        newline = text.indexOf("\n", newline + 1);
+      }
+      while (range < skipped.length && skipped[range][1] <= at) range++;
+      if (range < skipped.length && skipped[range][0] < at + match[0].length) continue;
+      lines.add(line);
     }
     if (lines.size) found.push({ path: note.path, text, lines: [...lines] });
   }
@@ -98,7 +106,14 @@ function skippedRanges(cache: CachedMetadata | null): [number, number][] {
   };
   add(cache?.frontmatterPosition);
   for (const link of [...(cache?.links ?? []), ...(cache?.embeds ?? [])]) add(link.position);
-  return ranges;
+  ranges.sort((a, b) => a[0] - b[0]);
+  const merged: [number, number][] = [];
+  for (const [start, end] of ranges) {
+    const last = merged[merged.length - 1];
+    if (last && start <= last[1]) last[1] = Math.max(last[1], end);
+    else merged.push([start, end]);
+  }
+  return merged;
 }
 
 function entry(path: string, detail: string, text: string, lines: number[]): string {
@@ -112,12 +127,6 @@ function entry(path: string, detail: string, text: string, lines: number[]): str
 
 function more(total: number): string {
   return total > MAX_NOTES ? `\n…and ${total - MAX_NOTES} more.` : "";
-}
-
-function lineAt(text: string, offset: number): number {
-  let line = 0;
-  for (let i = text.indexOf("\n"); i !== -1 && i < offset; i = text.indexOf("\n", i + 1)) line++;
-  return line;
 }
 
 function escapeRegExp(text: string): string {

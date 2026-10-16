@@ -405,3 +405,27 @@ test('Tool images: fewer than 3 turns keep all; several images and unknown tools
   // Later messages are the same objects.
   assert.equal(api.withoutOldToolImages(many)[6], many[6]);
 });
+
+
+test('Tool images: one long turn is bounded by image count and actual payload bytes', () => {
+  const picture = (id, data) => ({ id, fileName: `${id}.png`, mediaType: 'image/png', data, sizeBytes: 1 });
+  const history = [
+    { role: 'user', content: [{ type: 'image', image: picture('attached', 'user-data') }, text('Inspect')], turnId: 'long' },
+    ...Array.from({ length: 20 }, (_, i) => ({ role: 'user', content: [{ type: 'tool_result', tool_use_id: `v${i}`, content: `image ${i}`, images: [picture(`tool-${i}`, 'abcd')] }] })),
+  ];
+  const original = JSON.stringify(history);
+  const sent = api.withoutOldToolImages(history);
+  const retained = sent.flatMap(m => typeof m.content === 'string' ? [] : m.content.flatMap(b => b.images ?? []));
+  assert.deepEqual(retained.map(i => i.id), ['tool-16', 'tool-17', 'tool-18', 'tool-19']);
+  assert.match(sent[1].content[0].content, /omitted to save context/);
+  assert.equal(sent[0], history[0]);
+  assert.equal(JSON.stringify(history), original);
+  // A saved sizeBytes value cannot bypass the cap; use base64 payload length.
+  const data = 'A'.repeat(4 * 1024 * 1024); // 3 MiB per image, despite sizeBytes=1.
+  const big = [{ role: 'user', content: 'Inspect', turnId: 'big' },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'all', images: Array.from({ length: 5 }, (_, i) => picture(`big-${i}`, data)) }] }];
+  const block = api.withoutOldToolImages(big)[1].content[0];
+  assert.deepEqual(block.images.map(i => i.id), ['big-2', 'big-3', 'big-4']);
+  assert.match(block.content, /2 images.*omitted/);
+  assert.equal(big[1].content[0].images.length, 5);
+});

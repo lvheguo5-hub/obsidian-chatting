@@ -58,3 +58,23 @@ test('get_links: a note nobody mentions; the earlier name still runs', async () 
   const missing = await api.executeTool(linksApp(), 'get_links', { path: 'Nope.md' }, async () => '');
   assert.deepEqual(missing, { result: 'File not found: Nope.md', isError: true });
 });
+
+
+test('get_links: repeated mentions scan newline offsets once and keep exact line counts', async () => {
+  const app = linksApp();
+  const repeated = Array.from({ length: 4000 }, (_, i) => i % 2 ? 'Garden Garden' : 'Garden').join('\n');
+  app.vault.cachedRead = async file => file.path === 'Diary.md' ? repeated : TEXT[file.path];
+  app.metadataCache.getFileCache = file => file.path === 'Diary.md' ? {} : CACHE[file.path];
+  const indexOf = String.prototype.indexOf;
+  let scans = 0;
+  String.prototype.indexOf = function(search, from) {
+    if (String(this) === repeated && search === '\n') scans++;
+    return indexOf.call(this, search, from);
+  };
+  let output;
+  try { output = await api.executeTool(app, 'get_links', {}, async () => ''); }
+  finally { String.prototype.indexOf = indexOf; }
+  assert.equal(output.isError, false);
+  assert.match(output.result, /Diary\.md \(4000 lines\)/);
+  assert.ok(scans <= 4001, `newline rescans: ${scans}`);
+});
