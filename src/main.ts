@@ -758,6 +758,7 @@ function isSavedImage(image: unknown, withData: boolean): boolean {
 function isSavedSelection(value: unknown): boolean {
   if (!isRecord(value) || Array.isArray(value) || typeof value.filePath !== "string" || typeof value.text !== "string") return false;
   if ("sourceText" in value && typeof value.sourceText !== "string") return false;
+  if ("sourceHash" in value && (typeof value.sourceHash !== "string" || !/^[a-f0-9]{64}$/.test(value.sourceHash))) return false;
   return ["from", "occurrence"].every(key => !(key in value) ||
     (typeof value[key] === "number" && Number.isInteger(value[key]) && value[key] >= 0));
 }

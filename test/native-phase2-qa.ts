@@ -78,6 +78,9 @@ export default class Phase2NativeQA extends Plugin {
     if (hasLargeFixture) {
       assert(drawing.result.includes("Image preview omitted") && drawing.result.includes("HugeFixture.png"), "Large image rejected before decode");
       checks.push("large-image-preview:ok");
+      const resized = await run("view_image", { path: largePath });
+      assert(resized.result.includes("2048×1536"), "Large image decoded at bounded output size");
+      checks.push("large-image-resize:ok");
     }
     assert(drawing.images?.[0]?.data && drawing.images[0].sizeBytes > 0, "Real Canvas encoding");
     // Evidence image stays in this synthetic fixture folder.

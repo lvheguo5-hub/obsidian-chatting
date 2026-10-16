@@ -5,10 +5,12 @@
  * APIs only (createImageBitmap, <canvas>), so it works the same on desktop
  * and mobile.
  */
+import { rasterDimensions } from "./tools/image-preview";
 import { arrayBufferToBase64 } from "obsidian";
 
 /** Same per-image limit as attachments. */
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+export const MAX_SOURCE_IMAGE_BYTES = 20 * 1024 * 1024;
 /** Longest side sent; larger images are scaled down (as attachments are when re-encoded). */
 export const MAX_IMAGE_SIDE = 2048;
 
@@ -41,9 +43,9 @@ export function extensionOf(path: string): string {
 }
 
 /** Decodes image bytes; null if this device can't. */
-export async function decodeImage(bytes: ArrayBuffer, mediaType: string): Promise<ImageBitmap | null> {
+export async function decodeImage(bytes: ArrayBuffer, mediaType: string, options?: ImageBitmapOptions): Promise<ImageBitmap | null> {
   try {
-    return await createImageBitmap(new Blob([bytes], { type: mediaType }));
+    return await createImageBitmap(new Blob([bytes], { type: mediaType }), options);
   } catch {
     return null;
   }
@@ -107,27 +109,29 @@ export interface FittedImage extends EncodedImage {
  * JPEG). GIFs are never re-encoded, which would drop the animation.
  */
 export async function fitImage(bytes: ArrayBuffer, mediaType: string): Promise<FittedImage> {
-  const bitmap = await decodeImage(bytes, mediaType);
-  const width = bitmap?.width;
-  const height = bitmap?.height;
+  if (bytes.byteLength > MAX_SOURCE_IMAGE_BYTES) throw new Error("source images must be 20 MiB or smaller; resize the image first");
+  const dimensions = rasterDimensions(bytes);
+  const width = dimensions?.width;
+  const height = dimensions?.height;
   const original = { originalWidth: width, originalHeight: height };
   const tooManyBytes = bytes.byteLength > MAX_IMAGE_BYTES;
-  const tooLarge = tooManyBytes || (bitmap !== null && Math.max(bitmap.width, bitmap.height) > MAX_IMAGE_SIDE);
-  if (!tooLarge || (mediaType === "image/gif" && !tooManyBytes)) {
-    bitmap?.close();
+  const tooLarge = dimensions !== null && Math.max(dimensions.width, dimensions.height) > MAX_IMAGE_SIDE;
+  if (mediaType === "image/gif" || (!tooManyBytes && !tooLarge)) {
+    if (tooManyBytes) throw new Error(`GIF files must be ${formatBytes(MAX_IMAGE_BYTES)} or smaller`);
+    // Small images and animated GIFs need no local bitmap allocation.
     return { mediaType, data: arrayBufferToBase64(bytes), sizeBytes: bytes.byteLength, width, height, ...original, reencoded: false };
   }
-  if (mediaType === "image/gif") {
-    bitmap?.close();
-    throw new Error(`GIF files must be ${formatBytes(MAX_IMAGE_BYTES)} or smaller`);
-  }
-  if (!bitmap) throw new Error("the image is too large and this device can't decode it to scale it down");
+  if (!dimensions) throw new Error("image dimensions are unavailable; resize the image first");
+  const scale = Math.min(1, MAX_IMAGE_SIDE / Math.max(dimensions.width, dimensions.height));
+  const targetWidth = Math.max(1, Math.round(dimensions.width * scale));
+  const targetHeight = Math.max(1, Math.round(dimensions.height * scale));
+  // Ask the decoder for the bounded output directly. Never retry with a full
+  // bitmap if resized decoding is unavailable on the device.
+  const bitmap = await decodeImage(bytes, mediaType, { resizeWidth: targetWidth, resizeHeight: targetHeight, resizeQuality: "high" });
+  if (!bitmap) throw new Error("this device can't decode the image at a safe size; resize the image first");
   try {
-    const scale = Math.min(1, MAX_IMAGE_SIDE / Math.max(bitmap.width, bitmap.height));
-    const canvas = createCanvasElement(
-      Math.max(1, Math.round(bitmap.width * scale)),
-      Math.max(1, Math.round(bitmap.height * scale)),
-    );
+    if (bitmap.width > MAX_IMAGE_SIDE || bitmap.height > MAX_IMAGE_SIDE) throw new Error("the decoder ignored the image size limit; resize the image first");
+    const canvas = createCanvasElement(bitmap.width, bitmap.height);
     const context = canvas.getContext("2d");
     if (!context) throw new Error("image conversion is unavailable on this device");
     context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);

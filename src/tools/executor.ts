@@ -4,9 +4,10 @@ import { listMetadata, queryNotes } from "./metadata-query";
 import { getLinks } from "./links";
 import { applyCanvasOperations, canvasSearchTexts, describeCanvas, isCanvasPath, parseCanvas, serializeCanvas } from "./canvas";
 import { renderCanvas, shortIds } from "./canvas-render";
+import { selectionHash } from "../selection-history";
 import { canvasImageWithinBudget, PREVIEW_SOURCE_BYTES } from "./image-preview";
 import { readWebPage } from "./web-page";
-import { createCanvasElement, decodeImage, encodeCanvas, extensionOf, fitImage, formatBytes, imageMediaType, isImagePath } from "../images";
+import { MAX_SOURCE_IMAGE_BYTES, createCanvasElement, decodeImage, encodeCanvas, extensionOf, fitImage, formatBytes, imageMediaType, isImagePath } from "../images";
 
 /**
  * Files the read tools refuse because their text would be useless to the
@@ -197,7 +198,8 @@ async function editInScope(
     const selected = inNote(scope.text);
     const sourceText = scope.sourceText === undefined ? undefined : inNote(scope.sourceText);
     const from = crlf && scope.from !== undefined ? crlfOffset(sourceText ?? data, scope.from) : scope.from;
-    const start = selectionStart(data, selected, from, sourceText);
+    const sourceMatches = sourceText !== undefined || scope.sourceHash === undefined || selectionHash(data) === scope.sourceHash;
+    const start = sourceMatches ? selectionStart(data, selected, from, sourceText) : -1;
     const at = scope.text.indexOf(find);
     if (start === -1 || at === -1) {
       outcome = start === -1 ? "lost" : "outside";
@@ -501,6 +503,7 @@ async function viewImage(
     return { result: `${file.path} is not a PNG, JPEG, GIF or WebP image. ${hint}`, isError: true };
   }
 
+  if (file.stat?.size > MAX_SOURCE_IMAGE_BYTES) return { result: `Can't send ${file.path}: source images must be 20 MiB or smaller; resize the image first.`, isError: true };
   const bytes = await app.vault.readBinary(file);
   let image;
   try {

@@ -87,11 +87,11 @@ const imageBytes = (width, height, padding = 0) => {
 
 const surfaces = [];
 let closedBitmaps = 0;
-globalThis.createImageBitmap = async blob => {
+globalThis.createImageBitmap = async (blob, options) => {
   const bytes = await blob.arrayBuffer();
   if (bytes.byteLength < 24) throw new Error('cannot decode');
   const view = new DataView(bytes);
-  return { width: view.getUint32(16), height: view.getUint32(20), close() { closedBitmaps++; } };
+  return { width: options?.resizeWidth ?? view.getUint32(16), height: options?.resizeHeight ?? view.getUint32(20), close() { closedBitmaps++; } };
 };
 // Obsidian's global createEl(); only <canvas> is used.
 globalThis.createEl = tag => {
@@ -512,4 +512,36 @@ test('Agent bounds retained and persisted tool images within one long multi-call
   const restored=new api.AgentLoop(app,settings('anthropic'));restored.importMessages([...saved,{role:'user',content:'Second'},{role:'assistant',content:[text('OK')]},{role:'user',content:'Third'}]);
   assert.equal(restored.exportMessages().flatMap(m=>typeof m.content==='string'?[]:m.content.flatMap(b=>b.images??[])).length,0);
   assert.equal(JSON.stringify(saved),snapshot);
+});
+
+test('view_image requests a bounded decode for a 48MP image and never retries at full size', async () => {
+  const {app,binary}=imageVault();binary.set('Pics/photo.jpg',imageBytes(8000,6000));
+  const original=globalThis.createImageBitmap;const options=[];
+  globalThis.createImageBitmap=async(blob,opts)=>{options.push(opts);return {width:opts?.resizeWidth??8000,height:opts?.resizeHeight??6000,close(){}};};
+  try {
+    const viewed=await run(app,'view_image',{path:'Pics/photo.jpg'});
+    assert.equal(viewed.isError,false);
+    assert.deepEqual(options,[{resizeWidth:2048,resizeHeight:1536,resizeQuality:'high'}]);
+    options.length=0;globalThis.createImageBitmap=async(blob,opts)=>{options.push(opts);throw Error('resize unavailable');};
+    assert.equal((await run(app,'view_image',{path:'Pics/photo.jpg'})).isError,true);
+    assert.equal(options.length,1);assert.equal(options[0].resizeWidth,2048);
+  }finally{globalThis.createImageBitmap=original;}
+});
+
+
+test('JPEG EXIF rotation is included in preflight dimensions for resized decoding', () => {
+  const tiff=[73,73,42,0,8,0,0,0,1,0,0x12,1,3,0,1,0,0,0,6,0,0,0,0,0,0,0];
+  const jpeg=Uint8Array.from([255,216,255,225,0,tiff.length+8,...Buffer.from('Exif\0\0'),...tiff,255,192,0,8,8,0,80,0,100,1]).buffer;
+  assert.deepEqual(api.imagePreview.rasterDimensions(jpeg),{width:80,height:100});
+});
+
+test('view_image refuses oversized source bytes before reading and never decodes GIFs', async () => {
+  const {app}=imageVault();const get=app.vault.getFileByPath;
+  app.vault.getFileByPath=path=>({...get(path),stat:{size:21*1024*1024}});
+  app.vault.readBinary=async()=>{throw Error('must not read the oversized source');};
+  assert.match((await run(app,'view_image',{path:'Pics/photo.jpg'})).result,/20 MiB/);
+  const normal=imageVault();const original=globalThis.createImageBitmap;let calls=0;
+  globalThis.createImageBitmap=async()=>{calls++;throw Error('must not decode a GIF');};
+  try{assert.equal((await run(normal.app,'view_image',{path:'Pics/wide.gif'})).isError,false);assert.equal(calls,0);}
+  finally{globalThis.createImageBitmap=original;}
 });

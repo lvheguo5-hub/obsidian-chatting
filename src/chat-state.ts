@@ -4,6 +4,7 @@
  * `main.ts` reads and writes the file.
  */
 import type { ChatHistoryEntry, ImageAttachment, UnifiedMessage } from "./types";
+import { historySelection } from "./selection-history";
 import { assignLegacyTurnIds } from "./agent/history";
 
 /** Current format version of `chat-state.json`. */
@@ -51,16 +52,19 @@ export function migrateChatState(value: unknown): Pick<ChatState, "chatHistory" 
     version++;
   }
   return {
-    chatHistory: arrayOf<ChatHistoryEntry>(state.chatHistory),
+    chatHistory: arrayOf<ChatHistoryEntry>(state.chatHistory).map(compactSelection),
     agentMessages: arrayOf<UnifiedMessage>(state.agentMessages),
   };
 }
 
 /** Entries as saved: images keep their ID, name, type and size, not their data. */
 export function withoutImageData(entries: ChatHistoryEntry[]): ChatHistoryEntry[] {
-  return entries.map((entry) => entry.images?.length
-    ? { ...entry, images: entry.images.map(({ data: _data, ...image }) => image as ImageAttachment) }
-    : entry);
+  return entries.map((entry) => {
+    const compact = compactSelection(entry);
+    return compact.images?.length
+      ? { ...compact, images: compact.images.map(({ data: _data, ...image }) => image as ImageAttachment) }
+      : compact;
+  });
 }
 
 /**
@@ -88,4 +92,8 @@ function arrayOf<T>(value: unknown): T[] {
 
 function isRecord(value: unknown): value is StateRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function compactSelection(entry: ChatHistoryEntry): ChatHistoryEntry {
+  return entry.selection ? { ...entry, selection: historySelection(entry.selection) } : entry;
 }

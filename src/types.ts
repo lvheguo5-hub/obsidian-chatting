@@ -133,6 +133,8 @@ export interface SelectionScope {
   occurrence?: number;
   /** In-memory editor snapshot used to relocate safely; never sent to the model. */
   sourceText?: string;
+  /** Persisted fingerprint; replay refuses edits if the note has changed. */
+  sourceHash?: string;
 }
 
 // ─── Chat View History ──────────────────────────────────────────────────────

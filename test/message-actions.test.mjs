@@ -362,3 +362,32 @@ for (const answer of ['Q1', 'tail']) test(`Legacy migration distinguishes an ask
   assert.ok(JSON.stringify(requests[0].messages).includes(prompt.replace(/\n/g,'\\n')));
   assert.deepEqual(toolUseIds(requests[0]),[]);
 });
+
+test('Selected turns keep a compact fingerprint, enforce their live snapshot, and fail closed after note changes', async () => {
+  const {plugin,view,writes}=await setup('anthropic');
+  const sourceText='before SELECT after '+ 'x'.repeat(1024*1024);
+  const selection={filePath:'Untitled.md',text:'SELECT',from:7,occurrence:0,sourceText};
+  const file=plugin.app.vault.getFileByPath('Untitled.md');
+  let note=sourceText;
+  plugin.app.vault.process=async(f,fn)=>{note=fn(note);};
+  transport((body,i)=>i===0?response('anthropic',[call('edit','edit_document',{path:'Untitled.md',operation:'find_replace',find:'SELECT',content:'EDITED'})],'tool_use'):response('anthropic',[text('Done')]));
+  await view.handleUserMessage('Edit selection',selection);
+  assert.ok(note.startsWith('before EDITED after'),'live snapshot still enforces edits');
+  const stored=plugin.chatHistory[0].selection;
+  assert.equal(stored.sourceText,undefined);assert.match(stored.sourceHash,/^[a-f0-9]{64}$/);
+  assert.equal(selection.sourceText,sourceText,'input snapshot is not mutated');
+  await plugin.saveChatHistory();
+  assert.ok(JSON.stringify(writes.at(-1)).length<10000,'whole note is not duplicated into saved chat');
+  // Even if another identical occurrence now occupies the original offset,
+  // a regenerated turn may not silently edit that different selection.
+  note=sourceText+' SELECT';
+  const guarded=await api.executeTool(plugin.app,'edit_document',{path:file.path,operation:'find_replace',find:'SELECT',content:'WRONG'},async()=>'',stored);
+  assert.equal(guarded.isError,true);assert.ok(!note.includes('WRONG'));
+});
+
+test('Restoring old selected turns drops full-note snapshots while retaining safe edit metadata', async () => {
+  const saved={version:2,chatHistory:[{type:'user',text:'Q',turnId:'t1',selection:{filePath:'Untitled.md',text:'selected',from:0,sourceText:'selected '+ 'x'.repeat(100000)}}],agentMessages:[{role:'user',content:'Q',turnId:'t1'}]};
+  const {plugin}=await setup('anthropic',saved);
+  assert.equal(plugin.chatHistory[0].selection.sourceText,undefined);
+  assert.match(plugin.chatHistory[0].selection.sourceHash,/^[a-f0-9]{64}$/);
+});

@@ -5,6 +5,7 @@ import type ChatPlugin from "../main";
 import ChatContainer from "./ChatContainer.svelte";
 import type { ToolResult, SelectionScope, ImageAttachment } from "../types";
 import { screenAwake } from "../platform/screen-awake";
+import { historySelection } from "../selection-history";
 import { newTurnId } from "../agent/history";
 
 export const VIEW_TYPE_CHAT = "ochatting-view";
@@ -323,8 +324,9 @@ export class ObsidianChatView extends ItemView {
     const releaseScreen = screenAwake.hold();
     this.releaseScreen = releaseScreen;
     const turnId = newTurnId();
-    chat.addUserMessage(text, images, turnId, selection ?? undefined);
-    history.push({ type: "user", text, images, turnId, ...(selection ? { selection } : {}) });
+    const savedSelection = selection ? historySelection(selection) : undefined;
+    chat.addUserMessage(text, images, turnId, savedSelection);
+    history.push({ type: "user", text, images, turnId, ...(savedSelection ? { selection: savedSelection } : {}) });
     chat.setInputEnabled(false);
     chat.setBusy(true);
 

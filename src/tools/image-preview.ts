@@ -15,6 +15,7 @@ export function rasterDimensions(buffer: ArrayBuffer): { width: number; height: 
   // JPEG: skip bounded marker segments until a start-of-frame header.
   if (bytes[0] === 0xff && bytes[1] === 0xd8) {
     let at = 2;
+    let orientation = 1;
     while (at < bytes.length) {
       if (bytes[at++] !== 0xff) return null;
       while (bytes[at] === 0xff) at++;
@@ -24,8 +25,13 @@ export function rasterDimensions(buffer: ArrayBuffer): { width: number; height: 
       if (at + 2 > bytes.length) return null;
       const length = view.getUint16(at);
       if (length < 2 || at + length > bytes.length) return null;
+      if (marker === 0xe1 && length >= 16 && ascii(at + 2, "Exif\0\0")) {
+        orientation = jpegOrientation(view, at + 8, at + length);
+      }
       if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) {
-        return length >= 8 ? size(view.getUint16(at + 5), view.getUint16(at + 3)) : null;
+        if (length < 8) return null;
+        const width = view.getUint16(at + 5), height = view.getUint16(at + 3);
+        return orientation >= 5 && orientation <= 8 ? size(height, width) : size(width, height);
       }
       at += length;
     }
@@ -54,4 +60,20 @@ export function canvasImageWithinBudget(bytes: ArrayBuffer): boolean {
   if (bytes.byteLength > PREVIEW_SOURCE_BYTES) return false;
   const size = rasterDimensions(bytes);
   return size !== null && size.width <= 8192 && size.height <= 8192 && size.width * size.height <= PREVIEW_PIXELS;
+}
+
+/** EXIF orientation swaps the natural dimensions for a quarter-turn rotation. */
+function jpegOrientation(view: DataView, start: number, end: number): number {
+  const order = view.getUint16(start);
+  if (order !== 0x4949 && order !== 0x4d4d) return 1;
+  const little = order === 0x4949;
+  if (view.getUint16(start + 2, little) !== 42) return 1;
+  const directory = start + view.getUint32(start + 4, little);
+  if (directory < start + 8 || directory + 2 > end) return 1;
+  const count = view.getUint16(directory, little);
+  for (let i = 0, at = directory + 2; i < count && at + 12 <= end; i++, at += 12) {
+    if (view.getUint16(at, little) === 0x0112 && view.getUint16(at + 2, little) === 3
+      && view.getUint32(at + 4, little) === 1) return view.getUint16(at + 8, little);
+  }
+  return 1;
 }
