@@ -437,7 +437,7 @@ test('Provider replay is isolated across credential changes even with the same m
 
 test('Settings: fresh persisted catalog opens repeatedly without network or resetting selected custom model', async () => {
   const identity = await api.catalogIdentity('openai','settings-cache');
-  const plugin = {settings:{...settings('openai'),apiKey:'settings-cache',model:'future-custom',modelCatalog:{entries:[{identity,provider:'openai',models:[{value:'gpt-6.1-sol',label:'GPT 6.1'}],fetchedAt:Date.now()}]}},saveSettings:async()=>assert.fail('No write needed for fresh cache')};
+  const plugin = {settings:{...settings('openai'),apiKey:'settings-cache',model:'future-custom',modelCatalog:{entries:[{identity,provider:'openai',models:[{value:'gpt-6.1-sol',label:'GPT 6.1'}],fetchedAt:Date.now()}]}},refreshModelHeader:()=>{},saveSettings:async()=>assert.fail('No write needed for fresh cache')};
   const tab = new api.ChatSettingTab({},plugin);
   tab.display = ()=>{};
   globalThis.__providerRequest = async()=>assert.fail('Fresh cache must not request network');
@@ -449,7 +449,7 @@ test('Settings: fresh persisted catalog opens repeatedly without network or rese
 test('Settings: stale cache renders before background request resolves and failures keep the selection', async () => {
   const identity = await api.catalogIdentity('openai','settings-stale');
   const models = [{value:'gpt-5.5',label:'GPT 5.5'}];
-  const plugin = {settings:{...settings('openai'),apiKey:'settings-stale',model:'future-custom',modelCatalog:{entries:[{identity,provider:'openai',models,fetchedAt:0}]}},saveSettings:async()=>{}};
+  const plugin = {settings:{...settings('openai'),apiKey:'settings-stale',model:'future-custom',modelCatalog:{entries:[{identity,provider:'openai',models,fetchedAt:0}]}},refreshModelHeader:()=>{},saveSettings:async()=>{}};
   const tab = new api.ChatSettingTab({},plugin);
   const displays=[];
   tab.display=()=>displays.push(tab.catalogModels);

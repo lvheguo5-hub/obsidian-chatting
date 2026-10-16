@@ -502,6 +502,11 @@ export default class ChatPlugin extends Plugin {
     await this.saveData(toSave);
 
     // Update the chat view header with the new model name and thinking level
+    this.refreshModelHeader();
+  }
+
+  /** Refresh catalog-derived display metadata without rewriting settings or secrets. */
+  refreshModelHeader(): void {
     this.getChatView()?.updateModel(this.modelHeaderLabel());
   }
 

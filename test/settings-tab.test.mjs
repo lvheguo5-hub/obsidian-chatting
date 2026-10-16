@@ -53,3 +53,28 @@ test('A closed settings tab is not redrawn by a pending refresh; shown again, it
     globalThis.__supportsNewObsidian = false;
   }
 });
+
+test('restoring a cached provider catalog updates the header without a request or save', async () => {
+  for (const provider of ['anthropic', 'chatgpt-oauth']) {
+    const secret = `fake-cache-header-${provider}`;
+    const identity = await api.catalogIdentity(provider, secret);
+    const plugin = Object.create(api.ChatPlugin.prototype);
+    plugin.settings = { ...settings(provider), model: 'cache-header-model', thinkingLevel: '', apiKey: secret,
+      modelCatalog: { entries: [{ provider, identity, fetchedAt: Date.now(), models: [{ value: 'cache-header-model', label: 'Cached QA model', reasoningEfforts: ['low', 'high'], defaultReasoningEffort: 'high', thinkingType: 'adaptive' }] }] } };
+    plugin.chatgptOAuth = { getCredential: () => ({ accountId: secret }) };
+    let header;
+    let saves = 0;
+    plugin.getChatView = () => ({ updateModel: label => { header = label; } });
+    plugin.saveSettings = async () => { saves++; };
+    globalThis.__providerRequest = async () => { throw new Error('a fresh cache must not request models'); };
+    api.clearCatalogModels(provider);
+    plugin.getChatView().updateModel(plugin.modelHeaderLabel());
+    assert.notEqual(header, 'Cached QA model · high (default)');
+    const tab = new api.ChatSettingTab({}, plugin);
+    tab.refreshSettingsTab = () => {};
+    await tab.loadCatalog(false);
+    assert.equal(header, 'Cached QA model · high (default)');
+    assert.equal(saves, 0);
+    api.clearCatalogModels(provider);
+  }
+});

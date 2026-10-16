@@ -511,6 +511,7 @@ export class ChatSettingTab extends PluginSettingTab {
       if (!current()) return;
       const state: CatalogState = s.modelCatalog ??= { entries: [] };
       const cached = cachedCatalog(state, provider, identity);
+      if (cached) this.plugin.refreshModelHeader();
       if (this.catalogIdentity !== identity) {
         this.catalogIdentity = identity;
         this.catalogModels = cached?.models;
