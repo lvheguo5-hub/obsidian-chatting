@@ -1,0 +1,11 @@
+{
+  "scope": "desktop mobile emulation; synthetic keyboard",
+  "viewport": {
+    "width": 420,
+    "height": 912
+  },
+  "lift": "192px",
+  "inputBottom": 601,
+  "keyboardTop": 612,
+  "noHorizontalOverflow": true
+}

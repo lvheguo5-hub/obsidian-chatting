@@ -1,10 +1,11 @@
-import { App, Modal, Notice, PluginSettingTab, Setting, requireApiVersion, type SettingDefinitionItem } from "obsidian";
+import { App, Modal, Notice, Platform, PluginSettingTab, Setting, requireApiVersion, type SettingDefinitionItem } from "obsidian";
 import type ChatPlugin from "./main";
-import type { Provider } from "./types";
+import type { ChatSettings, Provider } from "./types";
 import { DEFAULT_PROVIDER_MODELS } from "./types";
+import type { BrowserLogin } from "./auth/chatgptBrowserLogin";
 import type { ChatGPTDeviceAuthorization, PollHandle } from "./auth/chatgptOAuth";
 
-import { type ModelOption, type CatalogState, catalogIdentity, cachedCatalog, refreshCatalog, getCatalogModels, clearCatalogModels, CATALOG_TTL } from "./api/model-catalog";
+import { type ModelOption, type CatalogState, catalogIdentity, cachedCatalog, refreshCatalog, getCatalogModels, clearCatalogModels, catalogModel, catalogDefaultLevel, resolveThinkingLevel, thinkingLevelLabel, CATALOG_TTL } from "./api/model-catalog";
 
 const CUSTOM_MODEL_OPTION = "__custom__";
 
@@ -34,6 +35,23 @@ export function getModelDisplayName(provider: string, modelId: string): string {
   const models = cached || FALLBACK_MODELS[provider] || [];
   const match = models.find((m) => m.value === modelId);
   return match?.label || modelId;
+}
+
+/** Chat header: the model name, plus the thinking level when the model offers levels. */
+export function getModelHeaderLabel(provider: Provider, modelId: string, level: string): string {
+  const thinking = thinkingLevelLabel(catalogModel(provider, modelId), level);
+  const name = getModelDisplayName(provider, modelId);
+  return thinking ? `${name} · ${thinking}` : name;
+}
+
+/**
+ * Settings for the Test buttons: one word back, as fast as the model allows.
+ * No web search and the lightest thinking level the catalog lists (providers
+ * list them lightest first); the chat settings stay as they are.
+ */
+function connectionTestSettings(settings: ChatSettings): ChatSettings {
+  const efforts = catalogModel(settings.provider, settings.model)?.reasoningEfforts;
+  return { ...settings, enableWebSearch: false, thinkingLevel: efforts?.[0] ?? settings.thinkingLevel };
 }
 
 // ─── Settings Tab ───────────────────────────────────────────────────────────
@@ -78,6 +96,7 @@ export class ChatSettingTab extends PluginSettingTab {
       } },
       // Its own definition: a row added next to another definition's row doesn't show.
       { name: "Custom model ID", visible: () => this.editingCustomModel, render: setting => this.renderCustomModel(setting) },
+      { name: "Thinking level", visible: () => !!this.thinkingOptions(), render: setting => this.renderThinkingLevel(setting) },
       { name: "Web search", render: setting => this.renderWebSearch(setting) },
       { name: "Max tool iterations", render: setting => this.renderMaxIterations(setting) },
     ];
@@ -107,6 +126,7 @@ export class ChatSettingTab extends PluginSettingTab {
     // ─── Model ────────────────────────────────────────────────────────
     this.renderModelSection(containerEl);
     if (this.editingCustomModel) this.renderCustomModel(new Setting(containerEl));
+    if (this.thinkingOptions()) this.renderThinkingLevel(new Setting(containerEl));
     void this.loadCatalog(false);
 
     this.renderWebSearch(new Setting(containerEl));
@@ -133,6 +153,8 @@ export class ChatSettingTab extends PluginSettingTab {
             this.catalogIdentity = "";
             s.provider = value as Provider;
             s.model = DEFAULT_PROVIDER_MODELS[s.provider];
+            // Each provider names its own levels: start from the model's default.
+            s.thinkingLevel = "";
             this.editingCustomModel = false;
             this.plugin.reloadApiKeyForProvider();
             await this.plugin.saveSettings();
@@ -215,9 +237,8 @@ export class ChatSettingTab extends PluginSettingTab {
           button.setDisabled(true);
           try {
             const { sendMessage } = await import("./api/client");
-            // No web search: the test answers quickly, whatever the chat uses.
             const response = await sendMessage(
-              { ...s, enableWebSearch: false },
+              connectionTestSettings(s),
               [{ role: "user", content: "Say hello in one word." }],
               [],
               "You are a test. Respond with one word."
@@ -290,9 +311,8 @@ export class ChatSettingTab extends PluginSettingTab {
             button.setDisabled(true);
             try {
               const { sendMessage } = await import("./api/client");
-              // No web search: the test answers quickly, whatever the chat uses.
               const response = await sendMessage(
-                { ...this.plugin.settings, enableWebSearch: false },
+                connectionTestSettings(this.plugin.settings),
                 [{ role: "user", content: "Say hello in one word." }],
                 [],
                 "You are a test. Respond with one word."
@@ -312,27 +332,51 @@ export class ChatSettingTab extends PluginSettingTab {
           })
         );
     } else {
-      (row ?? new Setting(containerEl))
+      const loginRow = (row ?? new Setting(containerEl))
         .setName("ChatGPT account")
-        .setDesc("Not connected. Sign in with ChatGPT to use this provider.")
+        .setDesc(Platform.isDesktop
+          ? "Sign in in your browser. A device code is also available if browser login cannot connect."
+          : "Sign in with a one-time device code, then return to Obsidian to finish connecting.")
         .addButton((button) =>
           button
-            .setButtonText("Connect ChatGPT")
+            .setButtonText(Platform.isDesktop ? "Sign in with ChatGPT" : "Connect ChatGPT")
             .setCta()
             .onClick(async () => {
+              button.setDisabled(true);
               try {
-                const auth = await this.plugin.chatgptOAuth.beginDeviceAuthorization();
-                const handle = this.plugin.chatgptOAuth.pollDeviceAuthorization(auth);
-                const modal = new ChatGPTDeviceLoginModal(this.app, auth, handle, () => {
-                  this.refreshSettingsTab();
-                });
-                modal.open();
+                if (Platform.isDesktop) {
+                  const login = await this.plugin.chatgptOAuth.beginBrowserAuthorization();
+                  const modal = new ChatGPTBrowserLoginModal(this.app, login, () => this.refreshSettingsTab());
+                  modal.open();
+                  window.open(login.authUrl, "_blank");
+                } else {
+                  await this.startDeviceLogin();
+                }
               } catch (e) {
-                const msg = e instanceof Error ? e.message : String(e);
-                new Notice(`Failed to start ChatGPT login: ${msg}`);
+                new Notice(e instanceof Error ? e.message : "Failed to start ChatGPT login.");
+              } finally {
+                button.setDisabled(false);
               }
             })
         );
+      if (Platform.isDesktop) loginRow.addButton((button) =>
+        button.setButtonText("Use device code").onClick(async () => {
+          button.setDisabled(true);
+          try { await this.startDeviceLogin(); }
+          finally { button.setDisabled(false); }
+        })
+      );
+    }
+  }
+
+  private async startDeviceLogin(): Promise<void> {
+    try {
+      this.plugin.chatgptOAuth.cancelBrowserLogin();
+      const auth = await this.plugin.chatgptOAuth.beginDeviceAuthorization();
+      const handle = this.plugin.chatgptOAuth.pollDeviceAuthorization(auth);
+      new ChatGPTDeviceLoginModal(this.app, auth, handle, () => this.refreshSettingsTab()).open();
+    } catch (e) {
+      new Notice(e instanceof Error ? e.message : "Failed to start ChatGPT login.");
     }
   }
 
@@ -366,10 +410,12 @@ export class ChatSettingTab extends PluginSettingTab {
             return;
           }
           const wasEditing = this.editingCustomModel;
+          const levels = this.thinkingOptions();
           this.editingCustomModel = false;
           s.model = value;
           await this.plugin.saveSettings();
-          if (wasEditing) window.setTimeout(() => this.refreshSettingsTab(), 10);
+          // The thinking levels on offer depend on the model.
+          if (wasEditing || this.thinkingOptions() !== levels) window.setTimeout(() => this.refreshSettingsTab(), 10);
         });
       });
 
@@ -395,8 +441,10 @@ export class ChatSettingTab extends PluginSettingTab {
         const commit = () => {
           const id = text.getValue().trim();
           if (!id || id === s.model) return;
+          const levels = this.thinkingOptions();
           s.model = id;
           void this.plugin.saveSettings();
+          if (this.thinkingOptions() !== levels) window.setTimeout(() => this.refreshSettingsTab(), 10);
         };
         text.inputEl.addEventListener("change", commit);
         text.inputEl.addEventListener("keydown", (event) => {
@@ -404,6 +452,41 @@ export class ChatSettingTab extends PluginSettingTab {
             event.preventDefault();
             commit();
           }
+        });
+      });
+  }
+
+  // ─── Thinking level ───────────────────────────────────────────────────────
+
+  /** The selected model's catalog entry when it offers thinking levels. */
+  private thinkingOptions(): ModelOption | undefined {
+    const s = this.plugin.settings;
+    const option = this.catalogModels?.find(m => m.value === s.model);
+    return option?.reasoningEfforts?.length ? option : undefined;
+  }
+
+  /** "Default" plus the levels the model catalog lists for the selected model. */
+  private renderThinkingLevel(setting: Setting): void {
+    const s = this.plugin.settings;
+    const option = this.thinkingOptions();
+    if (!option?.reasoningEfforts) return;
+    const efforts = option.reasoningEfforts;
+    const fallback = catalogDefaultLevel(option);
+    setting
+      .setName("Thinking level")
+      .setDesc("How much the model thinks before it answers. The levels come from the provider's model list.")
+      .addDropdown((dropdown) => {
+        dropdown.addOption("", fallback ? `Default (${fallback})` : "Default");
+        for (const effort of efforts) dropdown.addOption(effort, effort);
+        // Keep a saved level this model doesn't offer; requests use the default.
+        if (s.thinkingLevel && !resolveThinkingLevel(option, s.thinkingLevel)) {
+          dropdown.addOption(s.thinkingLevel, `${s.thinkingLevel} (not available)`);
+        }
+        dropdown.setValue(s.thinkingLevel);
+        dropdown.onChange(async (value) => {
+          s.thinkingLevel = value;
+          await this.plugin.saveSettings();
+          this.refreshSettingsTab();
         });
       });
   }
@@ -428,6 +511,7 @@ export class ChatSettingTab extends PluginSettingTab {
       if (!current()) return;
       const state: CatalogState = s.modelCatalog ??= { entries: [] };
       const cached = cachedCatalog(state, provider, identity);
+      if (cached) this.plugin.refreshModelHeader();
       if (this.catalogIdentity !== identity) {
         this.catalogIdentity = identity;
         this.catalogModels = cached?.models;
@@ -493,7 +577,7 @@ export class ChatGPTDeviceLoginModal extends Modal {
     new Setting(contentEl).setName("Connect ChatGPT").setHeading();
 
     contentEl.createEl("p", {
-      text: "1. Open this page in any browser:",
+      text: "Open the login page, sign in, and paste the one-time code below:",
     });
     const linkRow = contentEl.createDiv({ cls: "ochatting-device-link-row" });
     const link = linkRow.createEl("a", {
@@ -503,7 +587,7 @@ export class ChatGPTDeviceLoginModal extends Modal {
     link.setAttr("target", "_blank");
     link.setAttr("rel", "noopener");
 
-    contentEl.createEl("p", { text: "2. Enter this code on the page:" });
+    contentEl.createEl("p", { text: "Your code (expires after 15 minutes):" });
     const codeRow = contentEl.createDiv({ cls: "ochatting-device-code-row" });
 
     codeRow.createEl("code", {
@@ -520,16 +604,26 @@ export class ChatGPTDeviceLoginModal extends Modal {
     });
 
     const status = contentEl.createEl("p", {
-      text: "Waiting for authorization. You can return here after signing in.",
+      text: "Waiting for authorization. Return to Obsidian after approving the login; connecting will finish automatically.",
       cls: "ochatting-device-status",
     });
 
+    contentEl.createEl("p", { text: "If device-code login is unavailable, enable it in your ChatGPT security settings or ask your workspace admin." });
+
     const buttons = contentEl.createDiv({ cls: "ochatting-device-buttons" });
 
-    const openBtn = buttons.createEl("button", { text: "Open login page" });
+    const openBtn = buttons.createEl("button", { text: "Copy code and open login page" });
     openBtn.classList.add("mod-cta");
     openBtn.addEventListener("click", () => {
+      // Open during the gesture: awaiting clipboard first can block the new browser tab.
+      const copied = (async () => { await navigator.clipboard.writeText(this.authorization.userCode); })();
       window.open(this.authorization.verificationUri, "_blank");
+      void copied.then(() => {
+        status.setText("Code copied. Paste it on the login page, approve, then return to Obsidian.");
+      }).catch(() => {
+        status.setText("Could not copy the code. Enter the code shown above on the login page, then return here.");
+        new Notice("Could not copy the code. Enter it manually on the login page.");
+      });
     });
 
     const cancelBtn = buttons.createEl("button", { text: "Cancel" });
@@ -561,6 +655,40 @@ export class ChatGPTDeviceLoginModal extends Modal {
       // If the user closed via Esc or the close button, treat it as cancel.
       this.handle.cancel();
     }
+    this.contentEl.empty();
+  }
+}
+
+/** Desktop browser callback UI. Closing it always releases the local listener. */
+export class ChatGPTBrowserLoginModal extends Modal {
+  private cancelled = false;
+  constructor(app: App, private readonly login: BrowserLogin, private readonly onComplete: () => void) {
+    super(app);
+  }
+  onOpen(): void {
+    const { contentEl } = this;
+    contentEl.empty();
+    new Setting(contentEl).setName("Sign in with ChatGPT").setHeading();
+    const status = contentEl.createEl("p", { text: "Finish signing in in your browser. This window will close when ChatGPT is connected." });
+    const reopen = contentEl.createEl("button", { text: "Open login page again" });
+    reopen.addEventListener("click", () => window.open(this.login.authUrl, "_blank"));
+    const cancel = contentEl.createEl("button", { text: "Cancel" });
+    cancel.addEventListener("click", () => this.close());
+    void this.login.promise.then(() => {
+      if (this.cancelled) return;
+      new Notice("ChatGPT connected.");
+      this.onComplete();
+      this.close();
+    }).catch((error: unknown) => {
+      if (this.cancelled) return;
+      status.setText(error instanceof Error ? error.message : "Login failed. Try again or use a device code.");
+      reopen.disabled = true;
+      cancel.setText("Close");
+    });
+  }
+  onClose(): void {
+    this.cancelled = true;
+    this.login.cancel();
     this.contentEl.empty();
   }
 }

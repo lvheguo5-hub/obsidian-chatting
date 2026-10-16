@@ -1,0 +1,46 @@
+{
+  "device": "iPhone Air",
+  "iosVersion": "27.0.1",
+  "obsidianVersion": "1.14.5",
+  "vault": "Chatting Phase1 QA (new isolated iCloud vault)",
+  "candidateCommit": "ca278c3a4580e24974d20ce614e06fa359e94ad4",
+  "candidateSha256": "c00e4fcb9b69505504223a43c89bff45185acec24a05a63ce832755bc10c097e",
+  "scope": "Physical device, unchanged production UI. QA companion replaces agent.run with synthetic callbacks and performs a test-only vault.process write. Does not verify live providers or the production tool executor on iPhone.",
+  "checks": {
+    "candidateHashVerifiedOnPhone": true,
+    "mathInlineAndDisplayRendered": true,
+    "toolDetailsParametersAndResult": true,
+    "toolRunningSuccessAndErrorLabels": true,
+    "realKeyboardInputAndSendVisible": true,
+    "chineseTextExactReadback": true,
+    "realPinyinCompositionConfirmDidNotSend": true,
+    "longDraft276CharactersExactReadback": true,
+    "longDraftWithKeyboardControlsVisible": true,
+    "scrollUpAndJumpToLatest": true,
+    "appReloadRestoresChatAndToolResults": true,
+    "testNoteWriteReadBackViaICloud": true
+  },
+  "viewportPoints": {
+    "width": 420,
+    "height": 912
+  },
+  "keyboardObservation": {
+    "inputBottom": 523,
+    "keyboardTop": 534,
+    "inputHeight": 44
+  },
+  "observations": {
+    "candidateReady": "02b1e87c5ed7",
+    "keyboard": "626491ff5f65",
+    "toolResult": "f6b6223c9f75",
+    "compositionConfirm": "1d1cf1e1d11a",
+    "longInputKeyboard": "9e91f69dfc8b",
+    "reloadRestore": "8031e8aac1bc"
+  },
+  "notes": [
+    "USB appDataContainer listing failed; resolved deployment through a new iCloud vault and phone UI plugin enable.",
+    "A newline sent by the automation submitted the first line under the default Enter-to-send behavior; the long-input check then used wrapped text without newline keystrokes.",
+    "No account credentials copied; no main vault modified.",
+    "The optional metric-capture revision of the QA companion failed to load on a later reload. That attempt is not counted as passed; the earlier physical UI run and reload succeeded. Companion disabled at closeout, production candidate remains enabled."
+  ]
+}

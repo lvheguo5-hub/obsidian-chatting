@@ -1,0 +1,112 @@
+{
+  "date": "2026-10-15",
+  "device": "iPhone Air",
+  "iosVersion": "27.0.1",
+  "obsidianVersion": "1.14.5",
+  "vault": "Chatting Phase1 QA (isolated iCloud test vault)",
+  "productionCodeCommit": "dc80c07",
+  "researchHeadBeforeRun": "20539550bf325becb8e7fa4a09c350b03fe7eb77",
+  "candidateSha256": "2224c4d11cdd582597bd3f23c43739cd9794a3224d04ff2231639c7a0ce85697",
+  "provider": "chatgpt-oauth",
+  "model": "gpt-6.1-sol",
+  "thinkingLevel": "medium",
+  "scope": "Unmodified production plugin, real phone-owned account, production agent / requestUrl adapter / tool executor. No QA companion, agent replacements, injected responses, or copied credentials.",
+  "checks": {
+    "settingsConnected": true,
+    "liveConnectionTestHello": true,
+    "longChineseDraft298CharactersExactReadback": true,
+    "liveConversationReply": true,
+    "readCopiedTemplate": true,
+    "createNoteAndReadBack": true,
+    "inlineAndDisplayMathRendered": true,
+    "successToolParametersAndResultExpanded": true,
+    "processTerminatedAndAppReopened": true,
+    "chatAndToolResultsRestored": true,
+    "liveFollowupWithoutRelogin": true,
+    "restoredApiContextIdentifiesPreviousNote": true,
+    "findReplaceMarkerAtoB": true,
+    "setAndReadBooleanFrontmatter": true,
+    "expectedMissingFileErrorAndRecovery": true,
+    "errorToolParametersAndResultExpanded": true,
+    "phoneWriteVerifiedThroughICloud": true
+  },
+  "productionToolCalls": [
+    {
+      "name": "read_file",
+      "path": "QA/OAuth-live-test.md",
+      "isError": false
+    },
+    {
+      "name": "read_file",
+      "path": "30 Resources/Templates/README-TEMPLATE.zh-CN.md",
+      "isError": false
+    },
+    {
+      "name": "create_file",
+      "path": "QA/Phone-Live-20261015.md",
+      "isError": false
+    },
+    {
+      "name": "read_file",
+      "path": "QA/Phone-Live-20261015.md",
+      "isError": false
+    },
+    {
+      "name": "read_file",
+      "path": "QA/Phone-Live-Missing-20261015.md",
+      "isError": true
+    },
+    {
+      "name": "read_file",
+      "path": "QA/Phone-Live-20261015.md",
+      "isError": false
+    },
+    {
+      "name": "edit_document",
+      "path": "QA/Phone-Live-20261015.md",
+      "isError": false
+    },
+    {
+      "name": "set_properties",
+      "path": "QA/Phone-Live-20261015.md",
+      "isError": false
+    },
+    {
+      "name": "read_file",
+      "path": "QA/Phone-Live-20261015.md",
+      "isError": false
+    },
+    {
+      "name": "get_properties",
+      "path": "QA/Phone-Live-20261015.md",
+      "isError": false
+    }
+  ],
+  "savedUiMessages": 15,
+  "savedApiMessages": 24,
+  "fileIntegrity": {
+    "protected_count": 1797,
+    "changed": [],
+    "new_files": [
+      "QA/Phone-Live-20261015.md"
+    ]
+  },
+  "observations": {
+    "connected": "68d776d7413f",
+    "liveHello": "e6ca9c80a4aa",
+    "longDraft": "e7c1d284f43e",
+    "firstTurn": "29a2c5f9b8c9",
+    "createDetails": "b4f7a349b405",
+    "appTerminatedHome": "70afacd95815",
+    "historyAfterRestart": "b0ed25aae37c",
+    "liveFollowup": "d08b8ee1bf56",
+    "errorDetails": "d67e46981abb"
+  },
+  "boundaries": [
+    "User completed sign-in before this run; account-entry/consent screens were not replayed.",
+    "Desktop browser login and credential handoff to mobile are separate from this run. User deferred credential handoff and further code-free mobile login work.",
+    "No forced refresh/expiry, API-key providers, web search, images, or exhaustive coverage of all tools claimed.",
+    "devicectl terminate-existing removed the running process but its relaunch reported CoreDeviceError 10004. The phone was observed on SpringBoard; tapping Obsidian reopened it, restored chat, and the following real request passed.",
+    "No main vault access; no merge, version bump, tag, or release. Screenshots remain private."
+  ]
+}

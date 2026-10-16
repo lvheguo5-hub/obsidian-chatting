@@ -1,0 +1,27 @@
+{
+  "scope": "native desktop Obsidian; mobile checks are emulation only",
+  "checks": [
+    "upgrade-visible-history",
+    "upgrade-api-history",
+    "native-thinking-dropdown",
+    "native-thinking-change",
+    "native-inline-and-display-math",
+    "native-running-tool-label",
+    "native-completed-tool-label",
+    "native-tool-details",
+    "native-tool-error",
+    "native-follow-bottom",
+    "native-reading-position-preserved",
+    "native-jump-button",
+    "native-jump-to-latest",
+    "native-ime-confirmation-keeps-draft",
+    "native-input-visible"
+  ],
+  "layout": {
+    "panelWidth": 300,
+    "inputHeight": 37
+  },
+  "protectedFiles": 1780,
+  "protectedFilesChanged": 0,
+  "candidateSha256": "c00e4fcb9b69505504223a43c89bff45185acec24a05a63ce832755bc10c097e"
+}

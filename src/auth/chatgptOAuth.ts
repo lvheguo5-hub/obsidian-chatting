@@ -1,9 +1,8 @@
 /**
  * ChatGPT OAuth service.
  *
- * Implements the Device Authorization Flow only — no localhost callback
- * server, so it works on mobile Obsidian where Node modules and local
- * sockets aren't available.
+ * Supports device authorization on all platforms and browser OAuth on desktop.
+ * The desktop callback listener is loaded lazily; mobile never loads Node modules.
  *
  * Flow:
  *   1. beginDeviceAuthorization()  → POST /api/accounts/deviceauth/usercode
@@ -19,7 +18,7 @@
  * All HTTP goes through Obsidian's `requestUrl()`, which is the only
  * cross-platform fetch API available in mobile Obsidian.
  */
-import { requestUrl } from "obsidian";
+import { Platform, requestUrl } from "obsidian";
 import type {
   ChatGPTOAuthCredential,
   ChatGPTOAuthStore,
@@ -136,6 +135,9 @@ const describeError = (response: { status: number; text?: string; json?: unknown
 };
 
 export class ChatGPTOAuthService {
+  private browserGeneration = 0;
+  private browserLogin: { cancel: () => void } | null = null;
+
   /** The refresh in flight; parallel requests share it. */
   private refreshing: { token: string; promise: Promise<ChatGPTOAuthCredential> } | null = null;
 
@@ -146,8 +148,37 @@ export class ChatGPTOAuthService {
     return this.store.get();
   }
 
+  /** Desktop browser login uses PKCE and a loopback callback, never a pasted code. */
+  async beginBrowserAuthorization() {
+    if (!Platform.isDesktop) throw new ChatGPTOAuthError("Use device-code login on mobile.");
+    this.cancelBrowserLogin();
+    const generation = this.browserGeneration;
+    const { startBrowserLogin } = await import("./chatgptBrowserLogin");
+    const login = await startBrowserLogin(async (code, codeVerifier, redirectUri, isCancelled) => {
+      const credential = await this.exchangeAuthorizationCode({ code, codeVerifier, redirectUri });
+      if (isCancelled()) throw new ChatGPTOAuthError("ChatGPT login was cancelled.");
+      this.store.set(credential);
+    });
+    if (generation !== this.browserGeneration) {
+      login.cancel();
+      throw new ChatGPTOAuthError("ChatGPT login was cancelled.");
+    }
+    this.browserLogin = login;
+    void login.promise.finally(() => {
+      if (this.browserLogin === login) this.browserLogin = null;
+    }).catch(() => {});
+    return login;
+  }
+
+  cancelBrowserLogin(): void {
+    this.browserGeneration++;
+    this.browserLogin?.cancel();
+    this.browserLogin = null;
+  }
+
   /** Wipe the stored credential. */
   clearCredential(): void {
+    this.cancelBrowserLogin();
     this.store.clear();
   }
 
@@ -345,7 +376,7 @@ export class ChatGPTOAuthService {
     return this.refreshCredential(current);
   }
 
-  /** Exchange an authorization code (from device flow) for tokens. */
+  /** Exchange an authorization code for tokens. */
   private async exchangeAuthorizationCode(input: {
     code: string;
     codeVerifier: string;

@@ -1,10 +1,9 @@
-import { ItemView, WorkspaceLeaf, Notice, type App } from "obsidian";
+import { ItemView, WorkspaceLeaf, Notice, Platform, type App } from "obsidian";
 import { mount, unmount } from "svelte";
 import type { Component } from "svelte";
 import type ChatPlugin from "../main";
 import ChatContainer from "./ChatContainer.svelte";
 import type { ToolResult, SelectionScope, ImageAttachment } from "../types";
-import { getModelDisplayName } from "../settings";
 
 export const VIEW_TYPE_CHAT = "ochatting-view";
 
@@ -106,11 +105,42 @@ export class ObsidianChatView extends ItemView {
   async onOpen(): Promise<void> {
     try {
       this.mountChat();
+      this.followKeyboardOnPhone();
     } finally {
       // Also when mounting failed: commands waiting for the view go on
       // (its methods do nothing without the UI) instead of waiting forever.
       this.markReady();
     }
+  }
+
+  /**
+   * Phones: Obsidian doesn't shrink the sidebar for the keyboard, it only
+   * sets --keyboard-height (and drops the sidebar's bottom padding). With
+   * the keyboard open, measure how much of the view it covers and lift the
+   * chat by that (`--ochatting-lift`, styles.css). Measured, not predicted:
+   * whatever lies below the view, the input ends at the keyboard. Runs when
+   * Obsidian changes the keyboard state (its style and class on <html> and
+   * <body>) and when the view's size changes.
+   */
+  private followKeyboardOnPhone(): void {
+    if (!Platform.isPhone) return;
+    const view = this.contentEl;
+    const update = () => {
+      const keyboard = Number.parseFloat(getComputedStyle(document.body).getPropertyValue("--keyboard-height")) || 0;
+      const rect = view.getBoundingClientRect();
+      const lift = keyboard > 0 && rect.height > 0 ? Math.max(0, Math.round(rect.bottom - (window.innerHeight - keyboard))) : 0;
+      view.style.setProperty("--ochatting-lift", `${lift}px`);
+    };
+    const resize = new ResizeObserver(update);
+    resize.observe(view);
+    const keyboardState = new MutationObserver(update);
+    for (const el of [document.documentElement, document.body]) {
+      keyboardState.observe(el, { attributes: true, attributeFilter: ["style", "class"] });
+    }
+    this.register(() => {
+      resize.disconnect();
+      keyboardState.disconnect();
+    });
   }
 
   private mountChat(): void {
@@ -126,7 +156,7 @@ export class ObsidianChatView extends ItemView {
         app: this.app,
         component: this,
         provider: this.plugin.settings.provider,
-        model: getModelDisplayName(this.plugin.settings.provider, this.plugin.settings.model),
+        model: this.plugin.modelHeaderLabel(),
         onSend: (text: string, selection: SelectionScope | null, images: ImageAttachment[]) => {
           void this.handleUserMessage(text, selection, images);
         },

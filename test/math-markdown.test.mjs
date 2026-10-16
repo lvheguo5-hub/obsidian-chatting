@@ -1,0 +1,156 @@
+// Answers are rendered with math delimiters models often use (\(..\), \[..\],
+// math fences) rewritten for Obsidian, and with the alias pipe of a wiki link
+// in a table row escaped. Code stays untouched.
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { api } from './harness.mjs';
+
+const normalize = api.normalizeMathMarkdown;
+
+test('inline \\(...\\) becomes $...$ and is trimmed', () => {
+  assert.equal(normalize('Let \\( x^2 \\) be given.'), 'Let $x^2$ be given.');
+});
+
+test('display \\[...\\] becomes $$...$$ and keeps its lines', () => {
+  assert.equal(normalize('Sum:\n\\[\n\\sum_{i=1}^n i\n\\]\nDone.'), 'Sum:\n$$\n\\sum_{i=1}^n i\n$$\nDone.');
+  assert.equal(normalize('Inline \\[a+b\\] display'), 'Inline $$a+b$$ display');
+  assert.equal(normalize('- item\n  \\[\n  x\n  \\]'), '- item\n  $$\n  x\n  $$');
+});
+
+test('several delimiters in one message', () => {
+  assert.equal(
+    normalize('If \\(a\\) and \\(b\\), then\n\\[a+b\\]\nand \\[c\\].'),
+    'If $a$ and $b$, then\n$$a+b$$\nand $$c$$.',
+  );
+});
+
+test('empty delimiters, escaped backslashes and dollars stay as they are', () => {
+  assert.equal(normalize('Empty \\( \\) and \\[\\]'), 'Empty \\( \\) and \\[\\]');
+  // `\\[2pt]` is a LaTeX line break inside existing math, not a delimiter.
+  const matrix = '$$\\begin{matrix} a \\\\[2pt] b \\end{matrix}$$';
+  assert.equal(normalize(matrix), matrix);
+  assert.equal(normalize('A path \\\\(x\\\\) stays'), 'A path \\\\(x\\\\) stays');
+  assert.equal(normalize('Costs \\$5, or $x$ and $$y$$'), 'Costs \\$5, or $x$ and $$y$$');
+  assert.equal(normalize('Price \\(\\$5\\)'), 'Price $\\$5$');
+});
+
+test('inline code and code fences are untouched', () => {
+  assert.equal(normalize('Write `\\(x\\)` or ``\\[y\\]`` for \\(z\\)'), 'Write `\\(x\\)` or ``\\[y\\]`` for $z$');
+  const fenced = '```js\nconst s = "\\\\(x\\\\)";\n```\n~~~\n\\[y\\]\n~~~';
+  assert.equal(normalize(fenced), fenced);
+  // An unclosed fence runs to the end of the message.
+  assert.equal(normalize('```\n\\(x\\)'), '```\n\\(x\\)');
+  // A math fence shown as an example inside a longer fence is code too.
+  const example = '````markdown\n```math\nx\n```\n````';
+  assert.equal(normalize(example), example);
+});
+
+test('math, latex and tex fences become $$ blocks', () => {
+  assert.equal(normalize('Before\n```math\nE = mc^2\n```\nAfter'), 'Before\n$$\nE = mc^2\n$$\nAfter');
+  assert.equal(normalize('```latex\n\n\\frac{a}{b}\n\n```'), '$$\n\\frac{a}{b}\n$$');
+  assert.equal(normalize('~~~TeX\nx\n~~~'), '$$\nx\n$$');
+  assert.equal(normalize('```math\r\nx\r\n```\r\n'), '$$\nx\n$$\n');
+  assert.equal(normalize('```math\n\n```'), '```math\n\n```');
+});
+
+test('a [[link|alias]] in a table row gets its pipe escaped; elsewhere, escaped or in code it stays', () => {
+  assert.equal(normalize('| Mira | [[2026-10-05 Kickoff|Kickoff]] |'), '| Mira | [[2026-10-05 Kickoff\\|Kickoff]] |');
+  assert.equal(normalize('| [[A|a]] and [[B|b]] |'), '| [[A\\|a]] and [[B\\|b]] |');
+  assert.equal(normalize('| [[A\\|a]] | [[Plain]] |'), '| [[A\\|a]] | [[Plain]] |');
+  assert.equal(normalize('See [[A|a]] here.'), 'See [[A|a]] here.');
+  assert.equal(normalize('| `[[A|a]]` |'), '| `[[A|a]]` |');
+  assert.equal(normalize('```\n| [[A|a]] |\n```'), '```\n| [[A|a]] |\n```');
+});
+
+
+test('multiline code spans and unequal backtick runs preserve literal math', () => {
+  const source = 'Use ``line one\\n\\(literal\\) with ` inside`` then \\(x\\)'.replace('\\n', '\n');
+  assert.equal(normalize(source), source.replace('then \\(x\\)', 'then $x$'));
+});
+
+test('indented code blocks preserve literal delimiters, fences and links', () => {
+  for (const indent of ['    ', '\t']) {
+    const source = `Example:\n\n${indent}\\(literal\\)\n\n${indent}\\[literal\\]\n${indent}| [[A|a]] |\n${indent}\x60\x60\x60math\n${indent}x\n${indent}\x60\x60\x60\n\nThen \\(x\\).`;
+    assert.equal(normalize(source), source.replace('Then \\(x\\)', 'Then $x$'));
+    assert.equal(normalize(`${indent}\\(literal\\)`), `${indent}\\(literal\\)`);
+  }
+});
+
+test('indentation does not interrupt an existing paragraph', () => {
+  assert.equal(normalize('Paragraph\n    \\(x\\)'), 'Paragraph\n    $x$');
+});
+
+test('list continuation indentation stays prose; nested indented code stays literal', () => {
+  assert.equal(normalize('- item\n\n    \\(x\\)'), '- item\n\n    $x$');
+  assert.equal(normalize('- item\n\n      \\(literal\\)'), '- item\n\n      \\(literal\\)');
+  assert.equal(normalize('- parent\n  - child\n\n        \\(literal\\)\n\n  \\(x\\)'), '- parent\n  - child\n\n        \\(literal\\)\n\n  $x$');
+});
+
+test('pipe-less tables escape wiki aliases including rows with inline code', () => {
+  const source = 'Name | Link\n--- | ---\nAda | [[People/Ada|Profile]]\n`Bob` | [[People/Bob|Profile]]\n\nSee [[A|a]] here.';
+  assert.equal(normalize(source), source.replaceAll('People/Ada|', 'People/Ada\\|').replaceAll('People/Bob|', 'People/Bob\\|'));
+});
+
+test('a wiki alias alone does not turn prose into a table', () => {
+  const source = 'See [[A|a]] here.\nNot a table | [[B|b]]\nStill prose.';
+  assert.equal(normalize(source), source);
+});
+
+test('math fences use the active list content indentation', () => {
+  assert.equal(normalize('10. Formula\n\n    ```math\n    x^2\n    ```'), '10. Formula\n\n    $$\n    x^2\n    $$');
+  assert.equal(normalize('- parent\n  10. Formula\n\n      ~~~math\n      x^2\n      ~~~'), '- parent\n  10. Formula\n\n      $$\n      x^2\n      $$');
+  const literal='Example:\n\n    ```math\n    x^2\n    ```';
+  assert.equal(normalize(literal),literal);
+});
+
+test('fenced code in list items and blockquotes preserves literal math', () => {
+  for (const source of [
+    '- ```text\n  \\(literal\\)\n  \\[literal\\]\n  ```',
+    '> ```text\n> \\(literal\\)\n> \\[literal\\]\n> ```',
+    '> - ~~~text\n>   \\(literal\\)\n>   ~~~',
+    '> > ```text\n> > \\(literal\\)\n> > ```',
+    '> ```text\n> > ```\n> \\(literal\\)\n> ```',
+    '- ```text\n  \\(literal\\)',
+  ]) assert.equal(normalize(source), source);
+  assert.equal(normalize('> ```text\n> \\(literal\\)\n\nOutside \\(x\\)'), '> ```text\n> \\(literal\\)\n\nOutside $x$');
+  assert.equal(normalize('- ```text\n  \\(literal\\)\n\nOutside \\(x\\)'), '- ```text\n  \\(literal\\)\n\nOutside $x$');
+  const separateQuote = '> - item\n\nOutside\n\n>     \\(literal\\)';
+  assert.equal(normalize(separateQuote), separateQuote);
+});
+
+test('container math fences keep the list and quote prefixes', () => {
+  assert.equal(normalize('- ```math\n  x^2\n  ```'), '- $$\n  x^2\n  $$');
+  assert.equal(normalize('> ```math\n> x^2\n> ```'), '> $$\n> x^2\n> $$');
+  assert.equal(normalize('> - ```math\n>   x^2\n>   ```'), '> - $$\n>   x^2\n>   $$');
+});
+
+test('raw HTML code elements preserve literal delimiters and aliases', () => {
+  for (const literal of [
+    '<code>\\(literal\\)</code>',
+    '<PRE class="sample">\\[literal\\]</PRE>',
+    '<pre><code>\\(literal\\)\n| [[A|a]] |</code></pre>',
+    '<code title="a > b">\\(literal\\)</code>',
+    '<code>\\(unclosed\\)',
+  ]) assert.equal(normalize('Before \\(x\\) ' + literal), 'Before $x$ ' + literal);
+  assert.equal(normalize('`<code>` then \\(x\\)'), '`<code>` then $x$');
+  assert.equal(normalize('<!-- <code> --> then \\(x\\)'), '<!-- <code> --> then $x$');
+});
+
+test('fences inside raw HTML code elements stay literal', () => {
+  const source = 'Before \\(x\\)\n\n<pre>\n```math\n\\(literal\\)\n```\n</pre>\n\nAfter \\(y\\)';
+  assert.equal(normalize(source), source.replace('Before \\(x\\)', 'Before $x$').replace('After \\(y\\)', 'After $y$'));
+});
+
+test('tables in quote and list containers escape aliases at original row offsets', () => {
+  for (const prefix of ['> ', '> > ', '- ', '> - ', '- > ']) {
+    for (const outer of [true, false]) {
+      const rows = outer ? ['| Name | Link |', '| --- | --- |', '| Ada | [[People/Ada|Profile]] |']
+        : ['Name | Link', '--- | ---', '`Ada` | [[People/Ada|Profile]]'];
+      const continuation = prefix.replace(/[-+*]/g, ' ');
+      const source = prefix + rows[0] + '\n' + continuation + rows[1] + '\n' + continuation + rows[2];
+      assert.equal(normalize(source), source.replace('People/Ada|', 'People/Ada\\|'));
+    }
+  }
+  const source = '> Name | Link\n> --- | ---\n> Ada | [[People/Ada|Profile]]\nOutside [[B|b]]';
+  assert.equal(normalize(source), source.replace('People/Ada|', 'People/Ada\\|'));
+});

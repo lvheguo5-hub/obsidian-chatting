@@ -2,6 +2,9 @@
 // API and transport. Test files import what they need from here.
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
+import { createRequire } from 'node:module';
+// Electron exposes require; the ESM test runner supplies the same desktop loader.
+globalThis.require = createRequire(import.meta.url);
 
 // Bundle the actual production adapters/loop; only transport and the vault are fake.
 export const bundled = await build({
@@ -20,9 +23,12 @@ export const bundled = await build({
     export { TOOL_DEFINITIONS } from './src/tools/registry';
     export { ObsidianChatView } from './src/ui/chat-view';
     export { ChatGPTOAuthService } from './src/auth/chatgptOAuth';
+    export { startBrowserLogin } from './src/auth/chatgptBrowserLogin';
     export { ChatGPTOAuthStore } from './src/auth/chatgptOAuthStore';
     export { ChatGPTDeviceLoginModal } from './src/settings';
     export { selectionScope } from './src/main';
+    export { normalizeMathMarkdown } from './src/ui/math-markdown';
+    export * as toolLabels from './src/ui/tool-label';
   `, resolveDir: process.cwd(), loader: 'ts' },
   bundle: true, write: false, platform: 'node', format: 'esm',
   plugins: [{ name: 'obsidian-test-transport', setup(build) {
@@ -57,6 +63,8 @@ export const bundled = await build({
         if (!match) return none;
         return { exists: true, frontmatter: content.slice(open[0].length, match.index), from: open[0].length, to: match.index, contentStart: close.lastIndex };
       }
+      // A desktop unless a test sets globalThis.__isPhone.
+      export const Platform = { get isDesktop() { return globalThis.__isMobile !== true; }, get isPhone() { return globalThis.__isPhone === true; } };
     `, loader: 'js' }));
   } }],
 });

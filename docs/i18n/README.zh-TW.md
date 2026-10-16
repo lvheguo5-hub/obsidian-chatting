@@ -23,7 +23,7 @@
 
 - **三個 provider,自己選** —— Anthropic API、OpenAI API,或者直接用你的 ChatGPT 帳號登入。不做半成品 provider 的市場。
 - **14 個 vault 原生工具** —— 讀、改、搜尋、建立、重新命名、frontmatter、backlinks 一應俱全。從想法到改動檔案,不用離開聊天框。
-- **手機端不打折** —— 不靠 streaming、不依賴 Node-only 模組、不用 localhost callback。iOS 與 Android 與桌面表現一致。
+- **手機端不打折** —— 聊天與筆記工具使用相容手機的請求方式；桌面支援瀏覽器登入，手機目前使用裝置驗證碼登入。
 - **選取作用域** —— 在筆記中選一段文字送進聊天,助理只在選取裡動手。
 - **密鑰進作業系統鑰匙圈** —— 絕不寫進 `data.json`,不會被同步到其他裝置。
 
@@ -141,7 +141,7 @@ ln -s "$(pwd)" /path/to/vault/.obsidian/plugins/chatting-with-ai
 
 | 原則 | 意思 |
 |---|---|
-| **行動端不是補丁** | 每一次改動都在 iOS 與 Android 上驗證。不靠 streaming、不靠 Node-only 模組、不靠 localhost callback。 |
+| **行動端不是補丁** | 聊天與筆記工具支援手機，不依賴 Node 模組。桌面與 iPhone 真機驗收範圍見 `docs/phase1-review.md`。 |
 | **三個靠譜 provider** | Anthropic + OpenAI 求穩定,ChatGPT 帳號給不想設 API key 的人。 |
 | **密鑰進鑰匙圈** | API key 與 OAuth 憑證都走 Obsidian SecretStorage。絕不進 `data.json`,因此也不會被 Obsidian Sync 同步到其他裝置。 |
 | **不做向量索引** | 線性搜尋加上限保護。可預期、無背景工作、手機記憶體壓力小。 |
@@ -173,7 +173,7 @@ ln -s "$(pwd)" /path/to/vault/.obsidian/plugins/chatting-with-ai
 <details>
 <summary><b>行動端真的能用嗎?</b></summary>
 
-可以 —— 整個專案就是圍繞這個約束設計的。請求走 Obsidian 的 `requestUrl()`(手機 WebView 強制 CORS),不用 streaming、不用 Node-only 模組、OAuth 也不用 localhost callback。iOS 與 Android 跑的是和桌面完全相同的程式碼路徑。
+可以。請求透過 Obsidian 的 `requestUrl()`，手機不載入 Node 模組。桌面 ChatGPT 可用瀏覽器回呼登入，手機目前使用裝置驗證碼登入。登入憑據按裝置儲存，同步庫不會讓另一台裝置自動登入。
 
 </details>
 

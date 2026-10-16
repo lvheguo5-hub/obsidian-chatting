@@ -23,7 +23,7 @@
 
 - **Three providers, your choice** — Anthropic API, OpenAI API, or sign in with your ChatGPT account. No marketplace of half-broken providers.
 - **14 vault-native tools** — read, edit, search, create, rename, frontmatter, backlinks. The agent goes from idea to changed files without leaving the chat.
-- **Mobile-parity, by design** — no streaming, no Node-only modules, no localhost callbacks. iOS and Android behave the same as desktop.
+- **Mobile-first chat** — requests use Obsidian’s mobile-compatible transport. Desktop offers browser sign-in; mobile uses device-code sign-in.
 - **Selection scope** — highlight text in any note, send it to chat, the assistant edits only inside the selection.
 - **Secrets in the OS keychain** — never in `data.json`, never synced across devices.
 
@@ -81,18 +81,24 @@ Attach up to four images to a message, including by pasting an image from the cl
 
 > **About ChatGPT account login.** This provider signs you in with your ChatGPT account and routes requests through the ChatGPT/Codex backend (not `api.openai.com`). It requires an active ChatGPT plan with Codex access. The model picker fetches the Codex catalog for your account; account permissions still determine whether a model can be used.
 
+Desktop ChatGPT login opens your browser and returns automatically through a local callback. Device-code login remains available on desktop and is the current mobile login method. Sign-in credentials are stored per device; syncing a vault does not sign in another device.
+
 ### Model list updates
 
 All three providers load their authenticated model catalogs in settings. Lists are cached for 24 hours and survive restarts. Settings show the last list immediately, then refresh it in the background when expired. No daily timer or request on every settings visit is scheduled. The refresh button checks immediately. Failed requests retain the last list and selected model; account/API-key changes use a separate cache.
 
 ChatGPT OAuth discovers the latest stable client version from OpenAI's official GitHub release metadata and keeps the last known version or bundled fallback if discovery fails. Reasoning effort, reasoning summaries and parallel-tool options follow catalog metadata where provided. New model IDs normally require no plugin update, but upstream protocol changes can still require one. Custom model IDs survive reload. Catalog data contains no credentials.
 
+### Thinking level
+
+Below **Model**, **Thinking level** offers *Default* plus the levels the model list gives for the selected model: the Codex catalog's reasoning levels for a ChatGPT account, and the effort levels from Anthropic's `/v1/models`. The row is hidden when the model has none (OpenAI's API-key model list gives none). *Default* keeps the model's own default. A saved level the selected model doesn't offer stays saved and is marked "(not available)"; requests then use the default. The chat header shows the model and its level, e.g. `GPT-5.5 · high`. Anthropic's thinking mode (adaptive or a thinking budget) follows the same list; models it has no data on keep the mode chosen by model name.
+
 ## 🚀 Quick start
 
 1. Open **Settings → Community plugins → Browse**.
 2. Search for **Chatting with AI**.
 3. Click **Install**, then **Enable**.
-4. **Settings → Chatting with AI** → pick a provider, paste an API key (or click **Connect ChatGPT**).
+4. **Settings → Chatting with AI** → pick a provider, paste an API key (or choose **Sign in with ChatGPT** on desktop / **Connect ChatGPT** on mobile).
 5. Open the chat from the ribbon icon or the command palette.
 
 ## 📦 Install
@@ -149,7 +155,7 @@ ln -s "$(pwd)" /path/to/vault/.obsidian/plugins/chatting-with-ai
 
 | Principle | What it means |
 |---|---|
-| **Mobile is not an afterthought** | Every change is validated on iOS and Android. No streaming, no Node-only modules, no localhost callbacks. |
+| **Mobile is not an afterthought** | Chat and vault tools support mobile without Node modules. See the recorded desktop and physical iPhone QA coverage in `docs/phase1-review.md`. |
 | **Three sane providers** | Anthropic + OpenAI for stability, ChatGPT account for users who'd rather not manage an API key. |
 | **Secrets in the keychain** | API keys and OAuth credentials go through Obsidian SecretStorage. They never land in `data.json`, so they never sync to other devices. |
 | **No vault indexing** | Linear search, capped. Predictable, no background work, no memory pressure on phones. |
@@ -181,7 +187,7 @@ Only what the agent needs for the current turn. When you ask a question, the age
 <details>
 <summary><b>Does it really work on mobile?</b></summary>
 
-Yes — that's the design constraint everything else is built around. Requests go through Obsidian's `requestUrl()` (mobile WebViews enforce CORS), there's no streaming, no Node-only modules, no localhost callback for OAuth. iOS and Android run the same code path as desktop.
+Yes — that's the design constraint everything else is built around. Requests go through Obsidian's `requestUrl()` (mobile WebViews enforce CORS). On desktop, ChatGPT sign-in opens your browser and returns through a local callback. On iOS and Android, choose **Copy code and open login page**, paste the one-time code on the official page, approve, then return to Obsidian. Mobile uses device authorization and never loads the desktop callback server. If device-code login is unavailable, enable it in ChatGPT security settings or ask your workspace admin.
 
 </details>
 
