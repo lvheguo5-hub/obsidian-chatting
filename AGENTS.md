@@ -102,7 +102,7 @@ npm run svelte-check   # Svelte check
 | edit_canvas | `vault.process()` | Node/edge operations, all or nothing; keeps unknown fields |
 | read_web_page | `requestUrl()` + `htmlToMarkdown()` | http(s) only; article/main content, 40,000 characters per call; loaded from the user's device |
 | view_image | `vault.readBinary()` + `createImageBitmap()` | PNG, JPEG, GIF, WebP; over 2048 px or 5 MB scaled down (GIFs never re-encoded) |
-| view_canvas | `vault.cachedRead()` + Canvas 2D | PNG of the layout (at most 1600 px) and a legend of node tags; `focus` zooms to a group or node |
+| view_canvas | `vault.cachedRead()` + Canvas 2D | PNG of the layout (at most 1600 px) and a legend of node tags; source thumbnails over 4 MiPixels, 8192 px on one side, or 10 MiB show file cards; `focus` zooms to a group or node |
 
 ## Debug
 

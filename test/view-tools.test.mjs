@@ -76,15 +76,22 @@ function fakeContext() {
   });
 }
 
-/** Fake image bytes: the decoder reads the size from the text, e.g. "IMG 4000x3000". */
-const imageBytes = (width, height, padding = 0) => new TextEncoder().encode(`IMG ${width}x${height}${' '.repeat(padding)}`).buffer;
+/** Minimal PNG headers; the fake decoder reads their dimensions. */
+const imageBytes = (width, height, padding = 0) => {
+  const bytes = new Uint8Array(24 + padding);
+  bytes.set([137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82]);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(16, width); view.setUint32(20, height);
+  return bytes.buffer;
+};
 
 const surfaces = [];
 let closedBitmaps = 0;
 globalThis.createImageBitmap = async blob => {
-  const match = /IMG (\d+)x(\d+)/.exec(await blob.text());
-  if (!match) throw new Error('cannot decode');
-  return { width: Number(match[1]), height: Number(match[2]), close() { closedBitmaps++; } };
+  const bytes = await blob.arrayBuffer();
+  if (bytes.byteLength < 24) throw new Error('cannot decode');
+  const view = new DataView(bytes);
+  return { width: view.getUint32(16), height: view.getUint32(20), close() { closedBitmaps++; } };
 };
 // Obsidian's global createEl(); only <canvas> is used.
 globalThis.createEl = tag => {
@@ -198,7 +205,7 @@ test('view_image sends a small image unchanged with its sizes', async () => {
   const { app, binary } = imageVault();
   const result = await run(app, 'view_image', { path: 'Pics/cat.png' });
   assert.equal(result.isError, false);
-  assert.equal(result.result, 'Pics/cat.png (100×80, 10 B), sent unchanged.');
+  assert.equal(result.result, 'Pics/cat.png (100×80, 24 B), sent unchanged.');
   assert.equal(result.images.length, 1);
   assert.equal(result.images[0].mediaType, 'image/png');
   assert.equal(result.images[0].fileName, 'cat.png');
@@ -210,7 +217,7 @@ test('view_image scales a large photo down to 2048 px as JPEG; GIFs are sent unc
   const before = closedBitmaps;
   const result = await run(app, 'view_image', { path: 'Pics/photo.jpg' });
   assert.equal(result.isError, false);
-  assert.match(result.result, /^Pics\/photo\.jpg \(4000×3000, 13 B\), sent as 2048×1536, JPEG, \d+ B\.$/);
+  assert.match(result.result, /^Pics\/photo\.jpg \(4000×3000, 24 B\), sent as 2048×1536, JPEG, \d+ B\.$/);
   assert.equal(result.images[0].mediaType, 'image/jpeg');
   assert.equal(Buffer.from(result.images[0].data, 'base64').toString(), 'image/jpeg 2048x1536');
   assert.equal(surfaces.at(-1).ctx.calls.filter(([name]) => name === 'drawImage').length, 1);
@@ -428,4 +435,58 @@ test('Tool images: one long turn is bounded by image count and actual payload by
   assert.deepEqual(block.images.map(i => i.id), ['big-2', 'big-3', 'big-4']);
   assert.match(block.content, /2 images.*omitted/);
   assert.equal(big[1].content[0].images.length, 5);
+});
+
+
+test('view_canvas rejects oversized source bytes and pixel dimensions before bitmap decode', async () => {
+  const { app, binary } = imageVault();
+  let decoded = 0;
+  const original = globalThis.createImageBitmap;
+  globalThis.createImageBitmap = async (...args) => { decoded++; return original(...args); };
+  try {
+    binary.set('Pics/cat.png', imageBytes(8000, 6000));
+    const hugePixels = await run(app, 'view_canvas', { path: 'Board.canvas' });
+    assert.equal(hugePixels.isError, false);
+    assert.equal(decoded, 0);
+    assert.match(hugePixels.result, /Image preview omitted.*cat\.png/);
+    binary.set('Pics/cat.png', imageBytes(100, 80, 10 * 1024 * 1024));
+    await run(app, 'view_canvas', { path: 'Board.canvas' });
+    assert.equal(decoded, 0);
+    // A headerless source must not bypass the pixel check.
+    binary.set('Pics/cat.png', new Uint8Array([1,2,3]).buffer);
+    await run(app, 'view_canvas', { path: 'Board.canvas' });
+    assert.equal(decoded, 0);
+    // Normal images still decode and draw once.
+    binary.set('Pics/cat.png', imageBytes(100, 80));
+    await run(app, 'view_canvas', { path: 'Board.canvas' });
+    assert.equal(decoded, 1);
+  } finally { globalThis.createImageBitmap = original; }
+});
+
+
+test('Canvas raster header bounds cover JPEG, GIF and every WebP encoding', () => {
+  const dims = bytes => api.imagePreview.rasterDimensions(Uint8Array.from(bytes).buffer);
+  assert.deepEqual(dims([255,216,255,224,0,4,1,2,255,192,0,8,8,0,80,0,100,1]), {width:100,height:80});
+  assert.equal(dims([255,216,255,224,0,0]), null);
+  assert.equal(dims([255,216,255,192,0,30,8,0,80,0,100]), null);
+  assert.deepEqual(dims([...Buffer.from('GIF89a'),100,0,80,0]), {width:100,height:80});
+  const webp = (type, body) => [...Buffer.from('RIFF'),body.length+12,0,0,0,...Buffer.from('WEBP'+type),body.length,0,0,0,...body];
+  assert.deepEqual(dims(webp('VP8X',[0,0,0,0,99,0,0,79,0,0])), {width:100,height:80});
+  const bits = 99 | (79 << 14);
+  assert.deepEqual(dims(webp('VP8L',[0x2f,bits&255,(bits>>>8)&255,(bits>>>16)&255,(bits>>>24)&255])), {width:100,height:80});
+  assert.deepEqual(dims(webp('VP8 ',[0,0,0,0x9d,1,0x2a,100,0,80,0])), {width:100,height:80});
+  assert.equal(dims(webp('VP8X',[0,0,0,0,99])), null);
+  assert.equal(api.imagePreview.canvasImageWithinBudget(imageBytes(0,80)), false);
+  assert.equal(api.imagePreview.canvasImageWithinBudget(imageBytes(1,9000)), false);
+  assert.equal(api.imagePreview.canvasImageWithinBudget(imageBytes(2048,2048)), true);
+});
+
+test('Canvas source byte cap uses file metadata before reading the file', async () => {
+  const {app} = imageVault();
+  const get = app.vault.getFileByPath;
+  app.vault.getFileByPath = path => ({...get(path),stat:{size:11*1024*1024}});
+  app.vault.readBinary = async () => {throw Error('must not read the oversized file');};
+  const result = await run(app,'view_canvas',{path:'Board.canvas'});
+  assert.equal(result.isError,false);
+  assert.match(result.result,/Image preview omitted/);
 });

@@ -33,6 +33,7 @@ export const bundled = await build({
     export * as debug from './src/debug';
     export { screenAwake } from './src/platform/screen-awake';
     export { isSendKey } from './src/ui/send-key';
+    export * as imagePreview from './src/tools/image-preview';
     export * as canvasRender from './src/tools/canvas-render';
     export { withoutOldToolImages } from './src/agent/history';
     export * as chatState from './src/chat-state';

@@ -4,6 +4,7 @@ import { listMetadata, queryNotes } from "./metadata-query";
 import { getLinks } from "./links";
 import { applyCanvasOperations, canvasSearchTexts, describeCanvas, isCanvasPath, parseCanvas, serializeCanvas } from "./canvas";
 import { renderCanvas, shortIds } from "./canvas-render";
+import { canvasImageWithinBudget, PREVIEW_SOURCE_BYTES } from "./image-preview";
 import { readWebPage } from "./web-page";
 import { createCanvasElement, decodeImage, encodeCanvas, extensionOf, fitImage, formatBytes, imageMediaType, isImagePath } from "../images";
 
@@ -568,6 +569,7 @@ async function viewCanvas(
   if (wanted && !focus) {
     return { result: `No node or group with id "${wanted}" in ${file.path}. Use an ID from read_canvas or a tag from an earlier view_canvas legend.`, isError: true };
   }
+  const omitted = new Set<string>();
   const rendered = await renderCanvas(canvas, {
     focus: focus || undefined,
     createSurface: createCanvasElement,
@@ -575,13 +577,17 @@ async function viewCanvas(
       const image = app.vault.getFileByPath(normalizePath(path));
       const mediaType = image ? imageMediaType(image.path) : undefined;
       if (!image || !mediaType) return null;
-      return decodeImage(await app.vault.readBinary(image), mediaType);
+      if (image.stat?.size > PREVIEW_SOURCE_BYTES) { omitted.add(path); return null; }
+      const bytes = await app.vault.readBinary(image);
+      if (!canvasImageWithinBudget(bytes)) { omitted.add(path); return null; }
+      return decodeImage(bytes, mediaType);
     },
   });
   const png = await encodeCanvas(rendered.surface, "image/png");
   const name = file.path.slice(file.path.lastIndexOf("/") + 1);
   return {
-    result: `Picture of ${file.path}: ${rendered.legend}`,
+    result: `Picture of ${file.path}: ${rendered.legend}${omitted.size
+      ? `\nImage preview omitted (unknown dimensions, over 4 MiPixels, over 8192 px on one side, or over 10 MiB): ${[...omitted].join(", ")}. These nodes show file cards instead.` : ""}`,
     isError: false,
     images: [{
       id: `canvas-${Date.now()}`,

@@ -69,7 +69,16 @@ export default class Phase2NativeQA extends Plugin {
     else await this.app.vault.createBinary(imagePath, await png.arrayBuffer());
     const viewed = await run("view_image", { path: imagePath });
     assert(viewed.images?.[0]?.data && viewed.images[0].mediaType === "image/png", "Real image decoding");
+    const largePath = `${ROOT}/HugeFixture.png`;
+    const hasLargeFixture = !!this.app.vault.getFileByPath(largePath);
+    if (hasLargeFixture) await run("edit_canvas", { path: canvasPath, operations: [
+      { op: "add_node", type: "file", file: largePath },
+    ] });
     const drawing = await run("view_canvas", { path: canvasPath });
+    if (hasLargeFixture) {
+      assert(drawing.result.includes("Image preview omitted") && drawing.result.includes("HugeFixture.png"), "Large image rejected before decode");
+      checks.push("large-image-preview:ok");
+    }
     assert(drawing.images?.[0]?.data && drawing.images[0].sizeBytes > 0, "Real Canvas encoding");
     // Evidence image stays in this synthetic fixture folder.
     const picture = drawing.images![0];
