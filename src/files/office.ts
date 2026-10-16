@@ -11,6 +11,12 @@ import { unpackBudget, zipEntries, zipText } from "./zip";
 
 /** Rows read per sheet. */
 const SHEET_ROWS = 2000;
+/** Excel's column limit, plus bounds on CSV expansion across the workbook.
+ * ZIP byte limits alone don't bound sparse rows or repeated shared strings.
+ */
+const SHEET_COLUMNS = 16384;
+const WORKBOOK_CELLS = 100000;
+const WORKBOOK_TEXT_CHARS = 1000000;
 
 export type OfficeKind = "docx" | "xlsx" | "pptx";
 
@@ -118,8 +124,12 @@ function docxText(xml: string): string {
 
 /** Column letters to a 0-based index ("A" 0, "AA" 26). */
 function columnIndex(reference: string): number {
-  const letters = /^[A-Z]+/.exec(reference)?.[0] ?? "A";
-  return [...letters].reduce((n, c) => n * 26 + c.charCodeAt(0) - 64, 0) - 1;
+  if (!reference) return 0;
+  const match = /^([A-Z]{1,3})([1-9]\d{0,6})$/.exec(reference);
+  if (!match || Number(match[2]) > 1048576) throw new Error("Invalid spreadsheet cell reference");
+  const index = [...match[1]].reduce((n, c) => n * 26 + c.charCodeAt(0) - 64, 0) - 1;
+  if (index >= SHEET_COLUMNS) throw new Error("Spreadsheet column exceeds XFD");
+  return index;
 }
 
 function csvValue(value: string): string {
@@ -134,6 +144,8 @@ async function xlsxText(read: (name: string) => Promise<string | null>): Promise
   const targets = new Map(all(rels, /<Relationship\b[^>]*>/g).map((tag) => [attribute(tag, "Id") ?? "", attribute(tag, "Target") ?? ""]));
 
   const parts: string[] = [];
+  let expandedCells = 0;
+  let textChars = 0;
   for (const tag of all(workbook, /<sheet\b[^>]*>/g)) {
     const name = attribute(tag, "name") ?? "Sheet";
     const target = targets.get(attribute(tag, "r:id") ?? "") ?? "";
@@ -145,15 +157,26 @@ async function xlsxText(read: (name: string) => Promise<string | null>): Promise
       const cells: string[] = [];
       for (const cell of all(row, /<c\b[^>]*?(?:\/>|>[\s\S]*?<\/c>)/g)) {
         const open = /<c\b[^>]*>/.exec(cell)?.[0] ?? "";
+        // Check before assigning into the sparse array or expanding its gaps.
+        const column = columnIndex(attribute(open, "r") ?? "");
         const type = attribute(open, "t");
         const raw = /<v>([^<]*)<\/v>/.exec(cell)?.[1];
         const value = type === "s" ? shared[Number(raw)] ?? ""
           : type === "inlineStr" ? [...cell.matchAll(/<t(?:\s[^>]*)?>([^<]*)<\/t>/g)].map((m) => decode(m[1])).join("")
           : type === "b" ? (raw === "1" ? "TRUE" : "FALSE")
           : decode(raw ?? "");
-        cells[columnIndex(attribute(open, "r") ?? "")] = value;
+        if (textChars + value.length > WORKBOOK_TEXT_CHARS) throw new Error("Spreadsheet text expansion is too large");
+        const encoded = csvValue(value);
+        textChars += encoded.length;
+        if (textChars > WORKBOOK_TEXT_CHARS) throw new Error("Spreadsheet text expansion is too large");
+        cells[column] = encoded;
       }
-      return Array.from(cells, (value) => csvValue(value ?? "")).join(",");
+      expandedCells += cells.length;
+      textChars += cells.length; // Separators and the row's newline.
+      if (expandedCells > WORKBOOK_CELLS || textChars > WORKBOOK_TEXT_CHARS) {
+        throw new Error("Spreadsheet row expansion is too large");
+      }
+      return Array.from(cells, (value) => value ?? "").join(",");
     }).filter((line) => line.replace(/,/g, "") !== "");
     const more = rows.length > SHEET_ROWS ? `\n(${rows.length - SHEET_ROWS} more rows not read)` : "";
     parts.push(`## Sheet: ${name}\n${lines.join("\n")}${more}`);

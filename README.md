@@ -277,7 +277,7 @@ Mind one risk: `read_web_page` loads pages from your device, so it can also reac
 <details>
 <summary><b>Is it safe to attach Office files from unknown sources?</b></summary>
 
-Yes. Word, Excel and PowerPoint files are ZIP archives, and the plugin unpacks them on your device to read their text (for Anthropic). A file is unpacked to at most 64 MB: a crafted file that unpacks to more (a "zip bomb") is attached without its text instead of freezing Obsidian.
+Yes. Word, Excel and PowerPoint files are ZIP archives, and the plugin unpacks them on your device to read their text (for Anthropic). A file is unpacked to at most 64 MB: a crafted file that unpacks to more (a "zip bomb") is attached without its text instead of freezing Obsidian. Excel text extraction also validates cell references and limits sparse rows and repeated shared strings; a workbook exceeding these bounds is attached without locally extracted text.
 
 </details>
 

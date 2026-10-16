@@ -151,6 +151,35 @@ test('Excel: each sheet as CSV with shared, rich and inline strings, numbers, bo
   assert.equal(file.text, '## Sheet: Budget\nItem,Cost (EUR)\n"Tiles, grey",,12.5\n\n## Sheet: Notes & more\n,"Say ""hi""",TRUE');
 });
 
+function sparseWorkbook(rows, shared = '') {
+  return zip({
+    'xl/workbook.xml': '<workbook><sheets><sheet name="Sparse" r:id="r1"/></sheets></workbook>',
+    'xl/_rels/workbook.xml.rels': '<Relationships><Relationship Id="r1" Target="worksheets/sheet1.xml"/></Relationships>',
+    'xl/sharedStrings.xml': shared,
+    'xl/worksheets/sheet1.xml': `<worksheet><sheetData>${rows}</sheetData></worksheet>`,
+  });
+}
+
+test('Excel rejects out-of-range or malformed references before sparse row allocation; XFD remains supported', async () => {
+  for (const reference of ['XFE1', 'ZZZZZ1', 'A1048577', 'A0', 'ABC', '1A', 'A'.repeat(10000) + '1']) {
+    const bytes = sparseWorkbook(`<row><c r="${reference}"><v>17</v></c></row>`);
+    const file = await api.files.fileAttachment('Invalid.xlsx', bytes);
+    assert.equal(file.text, undefined, reference);
+    assert.equal(file.data, b64(bytes)); // Kept as a file; unsafe local extraction is refused.
+  }
+  const edge = await api.files.fileAttachment('Edge.xlsx', sparseWorkbook('<row><c r="XFD1048576"><v>17</v></c></row>'));
+  assert.equal(edge.text, '## Sheet: Sparse\n' + ','.repeat(16383) + '17');
+});
+
+test('Excel bounds total expansion even when sparse columns and repeated shared strings are individually valid', async () => {
+  const rows = Array.from({ length: 7 }, (_, i) => `<row><c r="XFD${i + 1}"><v>17</v></c></row>`).join('');
+  assert.equal((await api.files.fileAttachment('Wide.xlsx', sparseWorkbook(rows))).text, undefined);
+  const shared = '<sst><si><t>' + 'x'.repeat(600000) + '</t></si></sst>';
+  const repeated = '<row><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>0</v></c></row>';
+  assert.equal((await api.files.fileAttachment('Repeated.xlsx', sparseWorkbook(repeated, shared))).text, undefined);
+  assert.match((await api.files.fileAttachment('Small.xlsx', XLSX)).text, /Tiles, grey/);
+});
+
 test('PowerPoint: slides in their order (2 before 10)', async () => {
   const file = await api.files.fileAttachment('Talk.pptx', PPTX);
   assert.equal(file.text, '## Slide 1\nTitle\n\n## Slide 2\nSecond slide\nPoint\n\n## Slide 10\nLast');
