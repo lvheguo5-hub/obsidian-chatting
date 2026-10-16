@@ -1,5 +1,5 @@
 import { arrayBufferToBase64 } from "obsidian";
-import type { FileAttachment } from "../types";
+import type { FileAttachment, ImageAttachment } from "../types";
 import { officeKind, officeText } from "./office";
 
 /**
@@ -14,6 +14,22 @@ import { officeKind, officeText } from "./office";
 export const MAX_FILE_BYTES = 10 * 1024 * 1024;
 /** Text kept of a text file or read from an Office file. */
 export const FILE_TEXT_CHARS = 100000;
+/** Encoded attachments in one turn; leaves room for history, tools and text.
+ * The transport also checks the exact final request, since history varies.
+ */
+export const MAX_ATTACHMENT_PAYLOAD_BYTES = 20 * 1024 * 1024;
+
+export function attachmentBudgetError(images: ImageAttachment[], files: FileAttachment[]): string | null {
+  let bytes = 0;
+  for (const attachment of [...images, ...files]) {
+    const json = JSON.stringify(attachment);
+    bytes += new TextEncoder().encode(json).byteLength;
+    if (bytes > MAX_ATTACHMENT_PAYLOAD_BYTES) {
+      return "The combined images and files exceed the 20 MB encoded attachment limit. Remove some attachments or linked files and send them in a separate message.";
+    }
+  }
+  return null;
+}
 
 /** Types the providers read as files, by extension. */
 const DOCUMENT_TYPES: Record<string, string> = {

@@ -11,6 +11,7 @@ import { screenAwake } from "../platform/screen-awake";
 import { historySelection } from "../selection-history";
 import { newTurnId } from "../agent/history";
 import { mentionContext, mentionedFiles } from "./mentions";
+import { attachmentBudgetError } from "../files/attachments";
 import { findSkills, invokedSkillsText, type Skill } from "../agent/skills";
 
 export const VIEW_TYPE_CHAT = "ochatting-view";
@@ -464,6 +465,12 @@ export class ObsidianChatView extends ItemView {
       const mentioned = skills
         ? { text: linked ? `${skills}\n\n${linked.text}` : skills, images: linked?.images ?? [], files: linked?.files ?? [] }
         : linked;
+      const budgetError = attachmentBudgetError([...images, ...mentioned?.images ?? []], [...files, ...mentioned?.files ?? []]);
+      if (budgetError) {
+        chat.addError(budgetError);
+        history.push({ type: "error", text: budgetError });
+        return;
+      }
       started = true;
       await this.plugin.agent.run(text, {
         changes,

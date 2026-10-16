@@ -1,4 +1,4 @@
-import { App, normalizePath } from "obsidian";
+import { App, TFolder, normalizePath } from "obsidian";
 import type { UnifiedMessage } from "../types";
 
 /**
@@ -74,5 +74,22 @@ export function toolPaths(app: App, name: string, input: Record<string, unknown>
   const paths = [input.path, input.new_path].filter((value): value is string => typeof value === "string" && value.trim() !== "");
   const active = app.workspace.getActiveFile()?.path;
   if (paths.length === 0 && active && ACTIVE_NOTE_TOOLS.includes(name)) paths.push(active);
-  return paths;
+  // Renaming/deleting a folder touches its entire subtree. Include each
+  // affected folder itself (even an empty one), and its destination scope.
+  // A file-shaped path lets foldersOf include that folder's own AGENTS.md.
+  if ((name === "rename_file" || name === "delete_file") && typeof input.path === "string") {
+    const target = app.vault?.getFolderByPath?.(normalizePath(input.path));
+    if (target instanceof TFolder) {
+      const folders = [target];
+      for (const folder of folders) {
+        paths.push(`${folder.path}/${INSTRUCTIONS_FILE}`);
+        if (name === "rename_file" && typeof input.new_path === "string" && input.new_path.trim()) {
+          const destination = normalizePath(input.new_path);
+          paths.push(`${destination}${folder.path.slice(target.path.length)}/${INSTRUCTIONS_FILE}`);
+        }
+        folders.push(...folder.children.filter((child): child is TFolder => child instanceof TFolder));
+      }
+    }
+  }
+  return [...new Set(paths)];
 }

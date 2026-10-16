@@ -109,6 +109,43 @@ test('New folder rules defer every write in the same batch until the model has r
   assert.equal(files.get('Work/Plan.md'), 'Compliant');
 });
 
+for (const name of ['delete_file', 'rename_file']) {
+  test(`${name} on a folder delivers its own and descendant rules before the operation, then allows a compliant retry`, async () => {
+    const { app, loop } = loopWith({
+      'Projects/AGENTS.md': 'Preserve project records.',
+      'Projects/Sub/AGENTS.md': 'Ask before removing subprojects.',
+      'Archive/AGENTS.md': 'Archive destination rules.',
+    });
+    const sub = new api.TFolder('Projects/Sub');
+    const target = new api.TFolder('Projects', [sub]);
+    app.vault.getFolderByPath = path => path === 'Projects' ? target : path === sub.path ? sub : null;
+    app.vault.getAbstractFileByPath = path => path === 'Projects' ? target : null;
+    let operations = 0;
+    app.fileManager = { trashFile: async () => { operations++; }, renameFile: async () => { operations++; } };
+    // The destination's parent already exists.
+    app.vault.getFolderByPath = path => path === 'Projects' ? target : path === sub.path ? sub : path === 'Archive' ? new api.TFolder(path) : null;
+    const input = { path: 'Projects', ...(name === 'rename_file' ? { new_path: 'Archive/Projects' } : {}) };
+    const requests = transport((body, index) => {
+      if (index === 0) return response('anthropic', [call('first', name, input)], 'tool_use');
+      if (index === 1) {
+        assert.equal(operations, 0);
+        const result = toolResults(body).at(-1);
+        assert.equal(result.is_error, true);
+        assert.match(resultText(result), /No changes made[\s\S]*Preserve project records[\s\S]*Ask before removing subprojects/);
+        if (name === 'rename_file') assert.match(resultText(result), /Archive destination rules/);
+        return response('anthropic', [call('retry', name, input)], 'tool_use', index);
+      }
+      assert.equal(operations, 1);
+      return response('anthropic', [text('Done')], 'end_turn', index);
+    });
+    const cb = callbacks();
+    await loop.run('Apply an authorized folder operation', cb);
+    assert.deepEqual(cb.errors, []);
+    assert.equal(requests.length, 3);
+    assert.equal(operations, 1);
+  });
+}
+
 // A settings row that records its name, description and button.
 function row() {
   const r = { setName(name) { r.name = name; return r; }, setDesc(desc) { r.desc = desc; return r; } };

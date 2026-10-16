@@ -1,5 +1,6 @@
 import { supportsReasoning, catalogIdentity } from "./model-catalog";
 import { requestUrl } from "obsidian";
+import { serializeRequest } from "./request-budget";
 import { ProviderError, retryAfterMs } from "./errors";
 import type {
   ChatSettings,
@@ -104,7 +105,7 @@ export async function sendOpenAIMessage(
         Authorization: `Bearer ${settings.apiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(body),
+      body: serializeRequest(body),
       throw: false,
     });
   } catch (e: unknown) {

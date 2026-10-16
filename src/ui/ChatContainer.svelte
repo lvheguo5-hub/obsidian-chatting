@@ -3,7 +3,7 @@
   import { Component as ObsidianComponent, MarkdownRenderer, Notice } from "obsidian";
   import { tick } from "svelte";
   import type { ToolResult, SelectionScope, ImageAttachment, FileAttachment, ConversationSummary } from "../types";
-  import { ACCEPTED_FILES, MAX_FILE_BYTES, fileAttachment } from "../files/attachments";
+  import { ACCEPTED_FILES, MAX_FILE_BYTES, fileAttachment, attachmentBudgetError } from "../files/attachments";
   import { formatBytes } from "../images";
   import { insertMention, mentionAt, mentionCandidates, type MentionQuery } from "./mentions";
   import { skillAt, skillCandidates, type Skill } from "../agent/skills";
@@ -710,7 +710,11 @@
       }
       const attachment = await fileAttachment(file.name, await file.arrayBuffer());
       if (typeof attachment === "string") new Notice(attachment);
-      else fileAttachments = [...fileAttachments, attachment];
+      else {
+        const error = attachmentBudgetError(attachments, [...fileAttachments, attachment]);
+        if (error) new Notice(error);
+        else fileAttachments = [...fileAttachments, attachment];
+      }
     }
   }
 
@@ -727,6 +731,11 @@
 
       try {
         const image = await readImageAttachment(file);
+        const budgetError = attachmentBudgetError([...attachments, image], fileAttachments);
+        if (budgetError) {
+          new Notice(budgetError);
+          return;
+        }
         const currentBytes = attachments.reduce((total, item) => total + item.sizeBytes, 0);
         if (currentBytes + image.sizeBytes > MAX_TOTAL_IMAGE_BYTES) {
           new Notice("The combined image size must be 12 MB or less per message.");

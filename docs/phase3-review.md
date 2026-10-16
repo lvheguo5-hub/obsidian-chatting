@@ -26,7 +26,7 @@ The author stack is cumulative, ending at `425d0c4beb12888197bfc40bff4577f8864a6
 
 ## Validation
 
-Automated: 416 tests, TypeScript, Svelte (zero errors/warnings) and production build passed before native deployment. No fresh external Codex review or official Community scan has yet been performed for this branch.
+Automated before native deployment: 416 tests, TypeScript, Svelte (zero errors/warnings) and production build passed. External review and official scanning are tracked below.
 
 Desktop native Obsidian 1.13.7, isolated `ob 插件测试` vault, production ChatGPT provider:
 
@@ -48,4 +48,13 @@ Native reports are in `/Volumes/StudioSSD/Developer/BuildScratch/ChattingPhase3`
 
 ## Release state
 
-0.7.0 is candidate metadata on this development branch. The development branch is pushed with code integration commit `c441b1eea157330af57d7483dc74e71372f2b026`; its clean archive rebuild passed all 416 tests and checks, and all three asset SHA-256 values match. The branch is ready for its single Phase 3 integration PR, fresh external review, CI and an official Community Preview for the exact PR head. No Phase 3 main-branch merge, tag or release has been created. The Phase 2 integration PR is already merged; its formal release scan may temporarily occupy the Community scan slot. External review and official scanning remain required before release.
+0.7.0 is candidate metadata in the single Phase 3 integration/release PR #50. No Phase 3 main-branch merge, tag or release has been created. Phase 2 is fully released as 0.6.0, including the formal Community scan and Current release update.
+
+## External review, round 1
+
+Head `f81dcd4db6aa23d15db69c952c149d3869653845` passed CI and its exact-head Community Preview (Completed, no Error/Fail, Dependencies Pass; only two compatibility API deprecation recommendations). Codex identified two issues:
+
+- Folder renames/deletions discovered only ancestor instructions. Instruction discovery now walks the target folder and every descendant folder, including their destination scope on rename. Regression tests confirm no operation occurs until the model receives the rules, and a subsequent compliant retry executes once.
+- Per-file/count limits allowed a combined request beyond provider limits. The picker checks combined encoded images/files; the send path checks attachments plus mentioned files together (20 MiB), and all three provider transports check the actual serialized UTF-8 request including history, tools and system text (30 MB, below Anthropic's 32 MB ceiling). Oversized input is refused with an actionable error; no attachments are silently dropped. An unsent turn preserves pending undo notes.
+
+After these repairs, all 424 tests, TypeScript, Svelte (zero errors/warnings) and the production build pass. Fresh CI, Codex review and an exact-head Community Preview are required after push. The earlier native-device acceptance above covers the original integrated features; the new folder/request boundaries have automated regression coverage and are not represented as a new live-device acceptance run.

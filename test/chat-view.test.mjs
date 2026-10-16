@@ -296,3 +296,19 @@ test('Closing the view releases a pending ask_user turn', async () => {
   await asking;
   assert.equal(view.running, false);
 });
+
+test('An over-budget attachment turn preserves pending undo notes and leaves the view usable', async () => {
+  const { plugin, view, chat } = await chatSetup('anthropic');
+  plugin.activeConversation.notes = ['The user undid the previous edit.'];
+  const file = { id: 'big', fileName: 'Big.pdf', mediaType: 'application/pdf', data: 'A'.repeat(12 * 1024 * 1024), sizeBytes: 9 * 1024 * 1024 };
+  const requests = answering('anthropic');
+  await view.handleUserMessage('Read these', null, [], [file, { ...file, id: 'big2' }]);
+  assert.equal(requests.length, 0);
+  assert.equal(view.running, false);
+  assert.equal(plugin.agent.isEmpty(), true);
+  assert.deepEqual(plugin.activeConversation.notes, ['The user undid the previous edit.']);
+  assert.match(chat.shown.at(-1).text, /20 MB encoded attachment limit/);
+  await view.handleUserMessage('Try a smaller message', null);
+  assert.equal(requests.length, 1);
+  assert.match(JSON.stringify(requests[0]), /The user undid the previous edit/);
+});

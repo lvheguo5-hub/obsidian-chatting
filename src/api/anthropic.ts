@@ -1,5 +1,6 @@
 import { type ModelOption, cachedCatalog, catalogIdentity, catalogModel, resolveThinkingLevel } from "./model-catalog";
 import { requestUrl } from "obsidian";
+import { serializeRequest } from "./request-budget";
 import { ProviderError, retryAfterMs } from "./errors";
 import { withoutOldToolImages } from "../agent/history";
 import type {
@@ -115,7 +116,7 @@ export async function sendAnthropicMessage(
         "anthropic-version": "2023-06-01",
         "content-type": "application/json",
       },
-      body: JSON.stringify(body),
+      body: serializeRequest(body),
       throw: false,
     });
   } catch (e: unknown) {

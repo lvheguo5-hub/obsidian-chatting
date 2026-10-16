@@ -83,6 +83,45 @@ const PDF = new TextEncoder().encode('%PDF-1.7 fake').buffer;
 const b64 = buffer => Buffer.from(buffer).toString('base64');
 const utf8 = value => new TextEncoder().encode(value).buffer;
 
+test('Combined attachment budget counts base64, images and JSON-escaped Unicode text rather than declared source sizes', () => {
+  const file = { id: 'large', fileName: 'Large.pdf', mediaType: 'application/pdf', sizeBytes: 10 * 1024 * 1024, data: 'A'.repeat(4 * Math.ceil(10 * 1024 * 1024 / 3)) };
+  assert.equal(api.files.attachmentBudgetError([], [file]), null);
+  assert.match(api.files.attachmentBudgetError([], [file, file]), /combined images and files/);
+  const image = { id: 'image', fileName: 'Image.png', mediaType: 'image/png', sizeBytes: 1, data: 'A'.repeat(8 * 1024 * 1024) };
+  assert.match(api.files.attachmentBudgetError([image], [file]), /combined/);
+  assert.match(api.files.attachmentBudgetError([], [{ ...file, data: '', text: '中'.repeat(8 * 1024 * 1024) }]), /combined/);
+});
+
+test('Attachments and linked files share the turn budget; rejected input never enters agent history or reaches transport', async () => {
+  const { app } = vaultApp();
+  const loop = new api.AgentLoop(app, settings('anthropic'));
+  const file = { id: 'large', fileName: 'Large.pdf', mediaType: 'application/pdf', sizeBytes: 9 * 1024 * 1024, data: 'A'.repeat(12 * 1024 * 1024) };
+  const requests = transport(() => response('anthropic', [text('ok')]));
+  const cb = callbacks();
+  await loop.run('Read both files', cb, null, [], 'over-budget', { text: 'Linked PDF', images: [], files: [{ ...file, id: 'linked' }] }, [], [file]);
+  assert.equal(requests.length, 0);
+  assert.equal(loop.exportMessages().length, 0);
+  assert.match(cb.errors[0], /20 MB encoded attachment limit/);
+});
+
+for (const provider of ['anthropic', 'openai', 'chatgpt-oauth']) {
+  test(`${provider}: final encoded request budget includes history, tool files, images and system text before transport`, async () => {
+    const send = provider === 'anthropic' ? api.sendAnthropicMessage : provider === 'openai' ? api.sendOpenAIMessage : api.sendChatGPTOAuthMessage;
+    const file = { id: 'pdf', fileName: 'Big.pdf', mediaType: 'application/pdf', sizeBytes: 10 * 1024 * 1024, data: 'A'.repeat(14_000_000) };
+    const image = { id: 'img', fileName: 'Big.png', mediaType: 'image/png', sizeBytes: 5 * 1024 * 1024, data: 'A'.repeat(7_000_000) };
+    const messages = [
+      { role: 'user', content: [{ type: 'file', file }, { type: 'image', image }, { type: 'text', text: 'Read' }] },
+      { role: 'assistant', content: [call('read', 'read_file', { path: 'Other.pdf' })] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'read', content: 'Loaded', files: [{ ...file, data: 'A'.repeat(8_000_000), sizeBytes: 6_000_000 }] }] },
+    ];
+    const requests = transport(() => response(provider, [text('ok')]));
+    await assert.rejects(send(settings(provider), messages, [], '中'.repeat(1_000_000)), /30 MB chat limit/);
+    assert.equal(requests.length, 0);
+    await send(settings(provider), [{ role: 'user', content: 'A small retry' }], [], 'System');
+    assert.equal(requests.length, 1);
+  });
+}
+
 test('Word: headings (also German styles), lists, tabs, entities, tables as Markdown', async () => {
   const file = await api.files.fileAttachment('Plan.docx', DOCX);
   assert.equal(file.mediaType, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');

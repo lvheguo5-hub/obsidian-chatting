@@ -1,4 +1,5 @@
 import { oauthReasoning, oauthParallelTools, getCodexClientVersion, cachedCatalog, catalogIdentity } from "./model-catalog";
+import { serializeRequest } from "./request-budget";
 /**
  * ChatGPT OAuth API client.
  *
@@ -214,7 +215,7 @@ async function sendOnce(
       url: CODEX_RESPONSES_URL,
       method: "POST",
       headers,
-      body: JSON.stringify(body),
+      body: serializeRequest(body),
       throw: false,
     });
   } catch (e: unknown) {

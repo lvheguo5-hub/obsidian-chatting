@@ -21,6 +21,7 @@ import { findSkills, skillsPrompt } from "./skills";
 import { buildSystemPrompt, buildContextMessage } from "./system-prompt";
 import { trimHistory, cutBeforeTurn, editableTurn, newTurnId, withoutOldToolImages, MAX_CONVERSATION_LENGTH } from "./history";
 import { debugLog } from "../debug";
+import { attachmentBudgetError } from "../files/attachments";
 
 /**
  * The API history: saving keeps the last 80 messages. Before a turn, a
@@ -221,6 +222,11 @@ export class AgentLoop {
     const contextPrefix = mentioned ? `${buildContextMessage(context)}\n\n${mentioned.text}` : buildContextMessage(context);
     images = [...images, ...mentioned?.images ?? []];
     files = [...files, ...mentioned?.files ?? []];
+    const budgetError = attachmentBudgetError(images, files);
+    if (budgetError) {
+      callbacks.onError(budgetError);
+      return;
+    }
 
     // If there's a selection, inject it as scoped context
     let fullMessage: string;
