@@ -114,6 +114,8 @@ test('fenced code in list items and blockquotes preserves literal math', () => {
   ]) assert.equal(normalize(source), source);
   assert.equal(normalize('> ```text\n> \\(literal\\)\n\nOutside \\(x\\)'), '> ```text\n> \\(literal\\)\n\nOutside $x$');
   assert.equal(normalize('- ```text\n  \\(literal\\)\n\nOutside \\(x\\)'), '- ```text\n  \\(literal\\)\n\nOutside $x$');
+  const separateQuote = '> - item\n\nOutside\n\n>     \\(literal\\)';
+  assert.equal(normalize(separateQuote), separateQuote);
 });
 
 test('container math fences keep the list and quote prefixes', () => {

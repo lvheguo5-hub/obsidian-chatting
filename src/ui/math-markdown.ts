@@ -29,6 +29,9 @@ export function normalizeMathMarkdown(source: string): string {
   for (let i = 0; i < lines.length; i++) {
     const container = quoteContainer(lines[i]);
     const line = container.content;
+    for (const depth of containerLists.keys()) {
+      if (depth > container.depth) containerLists.delete(depth);
+    }
     const listIndents = containerLists.get(container.depth) ?? [];
     containerLists.set(container.depth, listIndents);
     const indentation = indentWidth(line);
