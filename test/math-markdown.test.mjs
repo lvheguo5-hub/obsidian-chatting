@@ -140,3 +140,17 @@ test('fences inside raw HTML code elements stay literal', () => {
   const source = 'Before \\(x\\)\n\n<pre>\n```math\n\\(literal\\)\n```\n</pre>\n\nAfter \\(y\\)';
   assert.equal(normalize(source), source.replace('Before \\(x\\)', 'Before $x$').replace('After \\(y\\)', 'After $y$'));
 });
+
+test('tables in quote and list containers escape aliases at original row offsets', () => {
+  for (const prefix of ['> ', '> > ', '- ', '> - ', '- > ']) {
+    for (const outer of [true, false]) {
+      const rows = outer ? ['| Name | Link |', '| --- | --- |', '| Ada | [[People/Ada|Profile]] |']
+        : ['Name | Link', '--- | ---', '`Ada` | [[People/Ada|Profile]]'];
+      const continuation = prefix.replace(/[-+*]/g, ' ');
+      const source = prefix + rows[0] + '\n' + continuation + rows[1] + '\n' + continuation + rows[2];
+      assert.equal(normalize(source), source.replace('People/Ada|', 'People/Ada\\|'));
+    }
+  }
+  const source = '> Name | Link\n> --- | ---\n> Ada | [[People/Ada|Profile]]\nOutside [[B|b]]';
+  assert.equal(normalize(source), source.replace('People/Ada|', 'People/Ada\\|'));
+});

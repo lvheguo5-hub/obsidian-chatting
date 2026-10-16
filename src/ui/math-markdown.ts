@@ -26,7 +26,7 @@ export function normalizeMathMarkdown(source: string): string {
   let offset = 0;
   const starts = lines.map(line => { const start = offset; offset += line.length + 1; return start; });
   const htmlRegions = [...normalized.matchAll(LITERAL_CODE)].filter(span => span[0].startsWith("<"))
-    .map(span => ({ start: span.index!, end: span.index! + span[0].length }));
+    .map(span => ({ start: span.index, end: span.index + span[0].length }));
   const out: string[] = [];
   let prose: string[] = [];
   const containerLists = new Map<number, number[]>();
@@ -147,28 +147,44 @@ function normalizeProse(text: string): string {
 
 function tableRowStarts(text: string): Set<number> {
   const lines = text.split("\n");
+  const contents = lines.map(tableContainer);
   const starts: number[] = [];
   const rows = new Set<number>();
   let offset = 0;
   let inTable = false;
+  let tableDepth = 0;
   for (let i = 0; i < lines.length; i++) {
     starts.push(offset);
-    const line = lines[i];
-    if (!line.trim()) inTable = false;
+    const { content: line, depth } = contents[i];
+    if (!line.trim() || tableDepth !== depth) inTable = false;
+    tableDepth = depth;
     // Recognize a real delimiter row for tables without outer pipes. Ignore
     // pipes inside wiki links, escaped text and inline code when counting cells.
     const cells = (value: string) => value.replace(CODE_SPAN, "").replace(/\[\[[^\n]*?\]\]/g, "")
       .replace(/\\\|/g, "").trim().replace(/^\||\|$/g, "").split("|");
     const columns = cells(line);
     if (i > 0 && line.includes("|") && columns.every(cell => /^\s*:?-+:?\s*$/.test(cell))
-      && lines[i - 1].trim() && cells(lines[i - 1]).length === columns.length) {
+      && contents[i - 1].depth === depth && contents[i - 1].content.trim()
+      && cells(contents[i - 1].content).length === columns.length) {
       inTable = true;
       rows.add(starts[i - 1]);
     }
     if (inTable || /^[ \t]*\|/.test(line)) rows.add(offset);
-    offset += line.length + 1;
+    offset += lines[i].length + 1;
   }
   return rows;
+}
+
+function tableContainer(line: string): { content: string; depth: number } {
+  let content = line, depth = 0;
+  while (true) {
+    const quote = quoteContainer(content);
+    content = quote.content;
+    depth += quote.depth;
+    const list = /^[ \t]*(?:[-+*]|\d+[.)])[ \t]+/.exec(content);
+    if (!list) return { content, depth };
+    content = content.slice(list[0].length);
+  }
 }
 
 function normalizeDelimiters(text: string, offset: number, tableRows: Set<number>, source: string): string {
