@@ -46,8 +46,34 @@ view the keyboard covers. `thinking-level.test.mjs`: the thinking level
 setting (levels from the model catalog, Default, a level the model doesn't
 offer, the chat header, the connection Test at the lightest level) and the
 thinking parameters each provider sends, with the previous rules for models
-the catalog has no data on. These tests do not establish live-service or
-physical-iOS behavior.
+the catalog has no data on. `metadata-query.test.mjs`: `query_notes` (tags
+with nested ones, all or any; property values, list items, links, set;
+folder; sorting; limit) and `list_metadata` with their labels.
+`links.test.mjs`: `get_links` (linked mentions with their lines, unlinked
+mentions by name or alias outside links and properties, outgoing links
+including unresolved ones) and the old name `get_backlinks`.
+`canvas.test.mjs`: the canvas tools against the real executor: the
+`read_canvas` outline, `edit_canvas` operations (Obsidian's file format,
+unknown fields kept, placement without overlap, refs, all or nothing) and
+canvas search in `search_vault`. `web-page.test.mjs`: `read_web_page` with a
+stand-in DOM (the article without scripts and navigation, text answers,
+other types and HTTP errors refused, only http(s), parts of long pages, a
+page without text) and its label. `enter-sends.test.mjs`,
+`debug-log.test.mjs` and `screen-awake.test.mjs`: the *Enter sends message*
+setting (default, kept, passed to the chat), the *Debug log* setting
+(nothing written while off; Copy and Clear; no keys in the log) and the
+screen wake lock (held during a turn, re-acquired on return, released on
+Stop, nothing without the API). `message-actions.test.mjs`: editing a
+message and regenerating or copying an answer through the chat view, with
+both histories cut at the same turn, also for chats saved before turn IDs;
+a turn the API history no longer holds can't be edited.
+`view-tools.test.mjs`: images in tool results (per provider, kept out of the
+chat view, sent once from the saved history), `view_image` and `view_canvas`
+against the real executor with fake image APIs, canvas drawing, and leaving
+older tool images out of requests. `images-once.test.mjs`: each attached
+image saved once, and the one-time migration of chats saved before
+`chat-state.json` had a version, and a chat saved by a newer version kept
+aside. These tests do not establish live-service or physical-iOS behavior.
 
 Two Node scripts that exercise the ChatGPT/Codex Responses endpoint
 **without** going through Obsidian, so iteration on the

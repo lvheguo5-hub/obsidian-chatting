@@ -4,6 +4,7 @@
   import type { ToolResult, SelectionScope, ImageAttachment } from "../types";
   import { normalizeMathMarkdown } from "./math-markdown";
   import { toolLabel } from "./tool-label";
+  import { isSendKey } from "./send-key";
 
   const MAX_IMAGE_COUNT = 4;
   const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -23,6 +24,10 @@
     toolName?: string;
     toolInput?: Record<string, unknown>;
     toolResult?: ToolResult;
+    /** User messages of a turn (not `ask_user` answers): editable. */
+    turnId?: string;
+    selection?: SelectionScope;
+    errorKind?: "stopped";
   }
 
   interface Props {
@@ -33,9 +38,12 @@
     onSend: (text: string, selection: SelectionScope | null, images: ImageAttachment[]) => void;
     onClear: () => void;
     onStop: () => void;
+    onEdit: (turnId: string, text: string) => void;
+    onRegenerate: () => void;
+    onCopy: (text: string) => void;
   }
 
-  let { app, component, provider, model, onSend, onClear, onStop }: Props = $props();
+  let { app, component, provider, model, onSend, onClear, onStop, onEdit, onRegenerate, onCopy }: Props = $props();
 
   let displayModel = $state("");
   let messages = $state<ChatMessage[]>([]);
@@ -49,6 +57,32 @@
   // The input shows a scrollbar only once its text is taller than it can grow.
   let inputScrollable = $state(false);
   let nextId = 0;
+  /** A turn is running (set by the view); regenerate waits for it. */
+  let busy = $state(false);
+
+  // Editing a user message in place
+  let editingId = $state<number | null>(null);
+  let editText = $state("");
+
+  /** The last answer (no user turn after it): the one that can be regenerated. */
+  const lastAnswerId = $derived.by(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (msg.type === "assistant") return msg.id;
+      if (msg.type === "user" && msg.turnId) return -1;
+    }
+    return -1;
+  });
+
+  /** The turn of the last answer. */
+  const lastTurnId = $derived([...messages].reverse().find((msg) => msg.type === "user" && !!msg.turnId)?.turnId);
+
+  /** Which turns can be edited or answered again: those the API history still holds. Set by the view. */
+  let editable = $state<(turnId: string) => boolean>(() => true);
+
+  export function setEditable(check: (turnId: string) => boolean): void {
+    editable = check;
+  }
 
   // Selection scope (shown as a pill above input)
   let selection = $state<SelectionScope | null>(null);
@@ -134,12 +168,25 @@
 
   // ─── Public API (called from chat-view.ts / chat-modal.ts) ────────────
 
-  export function addUserMessage(text: string, images: ImageAttachment[] = []): void {
-    messages.push({ id: nextId++, type: "user", text, images: images.slice() });
+  export function addUserMessage(
+    text: string,
+    images: ImageAttachment[] = [],
+    turnId?: string,
+    selection?: SelectionScope,
+  ): void {
+    messages.push({ id: nextId++, type: "user", text, images: images.slice(), turnId, selection });
   }
 
   export function addAssistantMessage(text: string): void {
     messages.push({ id: nextId++, type: "assistant", text });
+  }
+
+  /** Remove the turn `turnId` and everything after it (edit, regenerate). */
+  export function cutMessages(turnId: string): void {
+    const idx = messages.findIndex((m) => m.type === "user" && m.turnId === turnId);
+    if (idx === -1) return;
+    messages.splice(idx);
+    editingId = null;
   }
 
   export function addToolCall(name: string, input: Record<string, unknown>): number {
@@ -169,8 +216,8 @@
     if (idx !== -1) messages.splice(idx, 1);
   }
 
-  export function addError(text: string): void {
-    messages.push({ id: nextId++, type: "error", text });
+  export function addError(text: string, errorKind?: "stopped"): void {
+    messages.push({ id: nextId++, type: "error", text, errorKind });
   }
 
   export function showAskUser(question: string): Promise<string> {
@@ -196,8 +243,13 @@
     placeholder = enabled ? "Ask anything..." : "Waiting for response...";
   }
 
+  export function setBusy(value: boolean): void {
+    busy = value;
+  }
+
   export function clearMessages(): void {
     messages = [];
+    editingId = null;
     attachments = [];
     if (fileInputEl) fileInputEl.value = "";
     selection = null;
@@ -228,7 +280,30 @@
     selection = null;
   }
 
+  /** On: Enter sends, Shift+Enter is a new line. Off: Enter is a new line, Ctrl/Cmd+Enter sends. */
+  let enterSends = $state(true);
+
+  export function setEnterSends(on: boolean): void {
+    enterSends = on;
+  }
+
   // ─── Internal handlers ────────────────────────────────────────────────
+
+  /** Ctrl/Cmd+Enter, which Obsidian keeps from the input (see chat-view.ts). */
+  export function sendFromKeyboard(target: EventTarget | null): boolean {
+    if (!target) return false;
+    if (target === textareaEl) {
+      handleSend();
+      return true;
+    }
+    // The edit box of a sent message saves with the same key.
+    const editing = editingId === null ? undefined : messages.find((m) => m.id === editingId);
+    if (editing && target instanceof HTMLElement && target.closest(".ochatting-user-edit")) {
+      saveEdit(editing);
+      return true;
+    }
+    return false;
+  }
 
   function handleSend(): void {
     const text = inputText.trim();
@@ -260,10 +335,53 @@
 
   function handleKeydown(e: KeyboardEvent): void {
     if (e.isComposing || e.keyCode === 229) return;
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (isSendKey(e, enterSends)) {
       e.preventDefault();
       handleSend();
     }
+  }
+
+  function startEdit(msg: ChatMessage): void {
+    editingId = msg.id;
+    editText = msg.text ?? "";
+  }
+
+  function saveEdit(msg: ChatMessage): void {
+    const text = editText.trim();
+    // Images no longer saved aren't sent again (chat-view.ts editMessage).
+    if (!msg.turnId || (!text && !msg.images?.some((image) => image.data))) return;
+    editingId = null;
+    onEdit(msg.turnId, text);
+  }
+
+  function handleEditKeydown(e: KeyboardEvent, msg: ChatMessage): void {
+    if (e.isComposing || e.keyCode === 229) return;
+    // Saves with the same keys that send a message.
+    if (isSendKey(e, enterSends)) {
+      e.preventDefault();
+      saveEdit(msg);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      editingId = null;
+    }
+  }
+
+  /** The edit box: focused with the cursor at the end, grows with its text. */
+  function editBox(node: HTMLTextAreaElement) {
+    const grow = () => {
+      node.style.height = "auto";
+      node.style.height = Math.min(node.scrollHeight, 300) + "px";
+    };
+    node.addEventListener("input", grow);
+    grow();
+    node.focus();
+    node.setSelectionRange(node.value.length, node.value.length);
+    return {
+      destroy() {
+        node.removeEventListener("input", grow);
+      },
+    };
   }
 
   function autoGrow(): void {
@@ -443,6 +561,22 @@
   }
 </script>
 
+<!-- A user message's images; one no longer saved shows as a chip with its name. -->
+{#snippet userImages(images: ImageAttachment[])}
+  <div class="ochatting-user-images">
+    {#each images as image (image.id)}
+      {#if image.data}
+        <img src={imageDataUrl(image)} alt={image.fileName} />
+      {:else}
+        <span class="ochatting-image-chip" title="Image no longer saved">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+          <span>{image.fileName}</span>
+        </span>
+      {/if}
+    {/each}
+  </div>
+{/snippet}
+
 <div class="ochatting-container">
   <!-- Header -->
   <div class="ochatting-header">
@@ -470,22 +604,91 @@
     <div class="ochatting-message-list" bind:this={messageListEl}>
     {#each messages as msg (msg.id)}
       {#if msg.type === "user"}
-        <div class="ochatting-msg ochatting-user-msg">
-          {#if msg.images?.length}
-            <div class="ochatting-user-images">
-              {#each msg.images as image (image.id)}
-                <img src={imageDataUrl(image)} alt={image.fileName} />
-              {/each}
+        <div class="ochatting-user-turn" class:ochatting-editing={editingId === msg.id}>
+          {#if editingId === msg.id}
+            <div class="ochatting-msg ochatting-user-msg ochatting-user-edit">
+              {#if msg.images?.length}
+                {@render userImages(msg.images)}
+              {/if}
+              {#if msg.images?.some((image) => !image.data)}
+                <div class="ochatting-edit-note">Images no longer saved are left out.</div>
+              {/if}
+              {#if msg.selection}
+                <div class="ochatting-edit-note">Selection from {msg.selection.filePath.split("/").pop()}</div>
+              {/if}
+              <textarea
+                class="ochatting-edit-input"
+                bind:value={editText}
+                use:editBox
+                rows="1"
+                aria-label="Edit message"
+                onkeydown={(e) => handleEditKeydown(e, msg)}
+              ></textarea>
+              <div class="ochatting-edit-note">Changes the AI already made to notes stay.</div>
+              <div class="ochatting-edit-buttons">
+                <button type="button" onclick={() => editingId = null}>Cancel</button>
+                <button type="button" class="mod-cta" onclick={() => saveEdit(msg)}>Save</button>
+              </div>
             </div>
-          {/if}
-          {#if msg.text}
-            <div class="ochatting-msg-content">{msg.text}</div>
+          {:else}
+            {#if msg.selection}
+              <!-- What the message worked on, as the chat apps show a quote above it -->
+              <div class="ochatting-msg-selection" title={msg.selection.text}>
+                <span class="ochatting-msg-selection-label">Selection from {msg.selection.filePath.split("/").pop()}</span>
+                <span class="ochatting-msg-selection-text">{msg.selection.text}</span>
+              </div>
+            {/if}
+            <div class="ochatting-msg ochatting-user-msg">
+              {#if msg.images?.length}
+                {@render userImages(msg.images)}
+              {/if}
+              {#if msg.text}
+                <div class="ochatting-msg-content">{msg.text}</div>
+              {/if}
+            </div>
+            {#if msg.turnId && editable(msg.turnId)}
+              <div class="ochatting-msg-actions ochatting-hover-actions">
+                <button
+                  class="ochatting-action-btn"
+                  type="button"
+                  onclick={() => startEdit(msg)}
+                  aria-label="Edit message"
+                  title="Edit"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
+                </button>
+              </div>
+            {/if}
           {/if}
         </div>
 
       {:else if msg.type === "assistant"}
-        <div class="ochatting-msg ochatting-assistant-msg">
-          <div class="ochatting-msg-content" use:markdown={msg.text ?? ""}></div>
+        <div class="ochatting-answer">
+          <div class="ochatting-msg ochatting-assistant-msg">
+            <div class="ochatting-msg-content" use:markdown={msg.text ?? ""}></div>
+          </div>
+          <div class="ochatting-msg-actions" class:ochatting-hover-actions={msg.id !== lastAnswerId}>
+            <button
+              class="ochatting-action-btn"
+              type="button"
+              onclick={() => onCopy(msg.text ?? "")}
+              aria-label="Copy answer"
+              title="Copy"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+            </button>
+            {#if msg.id === lastAnswerId && !busy && (!lastTurnId || editable(lastTurnId))}
+              <button
+                class="ochatting-action-btn"
+                type="button"
+                onclick={onRegenerate}
+                aria-label="Regenerate answer"
+                title="Regenerate"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36L21 8"></path><polyline points="21 3 21 8 16 8"></polyline></svg>
+              </button>
+            {/if}
+          </div>
         </div>
 
       {:else if msg.type === "tool-call" || msg.type === "tool-result"}
@@ -514,6 +717,10 @@
             {/if}
           </div>
         </details>
+
+      {:else if msg.type === "error" && msg.errorKind === "stopped"}
+        <!-- Stopped before any of the answer arrived: a quiet note, not an error -->
+        <div class="ochatting-stopped-note">{msg.text}</div>
 
       {:else if msg.type === "error"}
         <div class="ochatting-msg ochatting-error-msg">
@@ -601,6 +808,7 @@
       {placeholder}
       disabled={!inputEnabled}
       rows="1"
+      enterkeyhint={enterSends ? "send" : "enter"}
       onkeydown={handleKeydown}
       onpaste={handlePaste}
       oninput={autoGrow}
@@ -764,6 +972,141 @@
     border-bottom-right-radius: var(--radius-s);
   }
 
+  /* A user message with its edit action, or its edit box */
+  .ochatting-user-turn {
+    align-self: flex-end;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    max-width: 90%;
+  }
+
+  .ochatting-user-turn.ochatting-editing {
+    width: 90%;
+  }
+
+  .ochatting-user-turn > .ochatting-msg,
+  .ochatting-answer > .ochatting-msg {
+    max-width: 100%;
+  }
+
+  .ochatting-user-edit {
+    width: 100%;
+    background: var(--background-secondary);
+    color: var(--text-normal);
+    border: 1px solid var(--interactive-accent);
+    border-bottom-right-radius: var(--radius-m);
+  }
+
+  .ochatting-edit-input {
+    width: 100%;
+    resize: none;
+    max-height: 300px;
+    padding: 6px 8px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-s);
+    background: var(--background-primary);
+    color: var(--text-normal);
+    font-family: var(--font-interface);
+    font-size: var(--font-ui-medium);
+    line-height: 1.4;
+  }
+
+  /* The selection a message was sent with: a muted quote above the bubble */
+  .ochatting-msg-selection {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-width: 100%;
+    margin-bottom: 4px;
+    padding: 4px 10px;
+    border-inline-start: 2px solid var(--interactive-accent);
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+  }
+
+  .ochatting-msg-selection-label {
+    font-weight: var(--font-semibold);
+  }
+
+  .ochatting-msg-selection-text {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    white-space: pre-line;
+  }
+
+  .ochatting-edit-note {
+    margin: 4px 0;
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+  }
+
+  .ochatting-edit-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+  }
+
+  /* An answer with its action row */
+  .ochatting-answer {
+    align-self: flex-start;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    max-width: 90%;
+  }
+
+  /* ─── Message actions (edit, copy, regenerate) ──────────────────────── */
+  .ochatting-msg-actions {
+    display: flex;
+    gap: 2px;
+    margin-top: 2px;
+  }
+
+  .ochatting-action-btn {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: none;
+    border-radius: var(--radius-s);
+    background: transparent;
+    box-shadow: none;
+    color: var(--text-faint);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .ochatting-action-btn:hover {
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
+  }
+
+  /* With a mouse, these appear on hover; on touch screens they stay visible. */
+  @media (hover: hover) and (pointer: fine) {
+    .ochatting-hover-actions {
+      opacity: 0;
+      transition: opacity 0.15s;
+    }
+
+    .ochatting-user-turn:hover .ochatting-hover-actions,
+    .ochatting-answer:hover .ochatting-hover-actions,
+    .ochatting-hover-actions:focus-within {
+      opacity: 1;
+    }
+  }
+
+  @media (hover: none) {
+    .ochatting-action-btn {
+      width: 32px;
+      height: 32px;
+    }
+  }
+
   .ochatting-user-images {
     display: flex;
     flex-wrap: wrap;
@@ -776,6 +1119,23 @@
     max-height: 220px;
     border-radius: var(--radius-s);
     object-fit: contain;
+  }
+
+  .ochatting-image-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 100%;
+    padding: 2px 8px;
+    border-radius: var(--radius-s);
+    background: rgba(0, 0, 0, 0.15);
+    font-size: var(--font-ui-smaller);
+  }
+
+  .ochatting-image-chip span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .ochatting-assistant-msg {
@@ -800,6 +1160,14 @@
     border-left: 3px solid var(--text-error);
     font-size: var(--font-ui-smaller);
     max-width: 90%;
+  }
+
+  .ochatting-stopped-note {
+    align-self: flex-start;
+    font-size: var(--font-ui-smaller);
+    font-style: italic;
+    color: var(--text-faint);
+    padding: 0 4px;
   }
 
   /* ─── Tool Calls ────────────────────────────────────────────────────── */
@@ -1197,8 +1565,18 @@
 
   /* ─── Responsive ────────────────────────────────────────────────────── */
   @media (max-width: 768px) {
-    .ochatting-msg {
+    .ochatting-msg,
+    .ochatting-user-turn,
+    .ochatting-answer {
       max-width: 95%;
+    }
+
+    .ochatting-user-turn.ochatting-editing {
+      width: 95%;
+    }
+
+    .ochatting-edit-input {
+      font-size: 16px; /* Prevents iOS zoom on focus */
     }
 
     .ochatting-input-bar {

@@ -29,6 +29,13 @@ export const bundled = await build({
     export { selectionScope } from './src/main';
     export { normalizeMathMarkdown } from './src/ui/math-markdown';
     export * as toolLabels from './src/ui/tool-label';
+    export { WEB_PAGE_CHARS } from './src/tools/web-page';
+    export * as debug from './src/debug';
+    export { screenAwake } from './src/platform/screen-awake';
+    export { isSendKey } from './src/ui/send-key';
+    export * as canvasRender from './src/tools/canvas-render';
+    export { withoutOldToolImages } from './src/agent/history';
+    export * as chatState from './src/chat-state';
   `, resolveDir: process.cwd(), loader: 'ts' },
   bundle: true, write: false, platform: 'node', format: 'esm',
   plugins: [{ name: 'obsidian-test-transport', setup(build) {
@@ -40,6 +47,7 @@ export const bundled = await build({
       export class App {}
       export class Plugin {}
       export class ItemView {}
+      export class Scope { constructor(parent) { this.parent = parent; this.keys = []; } register(modifiers, key, func) { this.keys.push({ modifiers, key, func }); } }
       export class Menu {}
       export const MarkdownRenderer = { render: async () => {} };
       export class Modal {}
@@ -50,6 +58,14 @@ export const bundled = await build({
       export class TAbstractFile {}
       export class TFile { constructor(path) { this.path = path; this.extension = 'md'; } }
       export const normalizePath = path => path;
+      // As Obsidian: body tags, then the frontmatter's tags (a list or a comma/space separated text), each with '#'.
+      export const getAllTags = cache => {
+        const fm = cache.frontmatter?.tags ?? cache.frontmatter?.tag;
+        const listed = Array.isArray(fm) ? fm : typeof fm === 'string' ? fm.split(/[,\\s]+/) : [];
+        return [...(cache.tags ?? []).map(t => t.tag), ...listed.filter(Boolean).map(t => t.startsWith('#') ? t : '#' + t)];
+      };
+      export const getLinkpath = link => link.split('#')[0];
+      export const parseFrontMatterAliases = fm => { const a = fm?.aliases ?? fm?.alias; return a == null ? null : (Array.isArray(a) ? a : [a]).map(String); };
       export const requestUrl = request => globalThis.__providerRequest(request);
       // Obsidian's rule: a "---" line at the start up to the next "---" line.
       export function getFrontMatterInfo(content) {
@@ -65,6 +81,9 @@ export const bundled = await build({
       }
       // A desktop unless a test sets globalThis.__isPhone.
       export const Platform = { get isDesktop() { return globalThis.__isMobile !== true; }, get isPhone() { return globalThis.__isPhone === true; } };
+      // Tags dropped, paragraphs kept: enough to see which content got through.
+      export const htmlToMarkdown = node => (typeof node === 'string' ? node : node.innerHTML).replace(/<\\/p>/g, '\\n\\n').replace(/<[^>]+>/g, '').trim();
+      export const arrayBufferToBase64 = buffer => Buffer.from(buffer).toString('base64');
     `, loader: 'js' }));
   } }],
 });

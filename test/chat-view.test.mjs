@@ -24,7 +24,7 @@ function fakeChat() {
     showThinking() {}, hideThinking() {},
     showAskUser(question) { chat.addAssistantMessage(question); return new Promise(resolve => { chat.askUser = resolve; }); },
     cancelAskUser() { const resolve = chat.askUser; chat.askUser = null; resolve?.(''); },
-    setInputEnabled() {}, clearMessages() { chat.shown = []; }, focus() {}, setModel() {},
+    setInputEnabled() {}, setBusy() {}, clearMessages() { chat.shown = []; }, focus() {}, setModel() {},
     setSelection() {}, getSelection: () => null,
   };
   return chat;
