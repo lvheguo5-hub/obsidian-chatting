@@ -15,7 +15,7 @@ import { TOOL_DEFINITIONS } from "../tools/registry";
 import { executeTool } from "../tools/executor";
 import { buildContext } from "./context";
 import { buildSystemPrompt, buildContextMessage } from "./system-prompt";
-import { trimHistory, cutBeforeTurn, editableTurn, newTurnId } from "./history";
+import { trimHistory, cutBeforeTurn, editableTurn, newTurnId, withoutOldToolImages } from "./history";
 import { debugLog } from "../debug";
 
 /**
@@ -97,6 +97,7 @@ export class AgentLoop {
   /** Restore API messages from persistence, as many as saving keeps */
   importMessages(messages: UnifiedMessage[]): void {
     this.messages = trimHistory(messages, MAX_CONVERSATION_LENGTH);
+    this.pruneToolImages();
     clearOpenAIState();
     clearChatGPTOAuthState();
   }
@@ -312,7 +313,7 @@ export class AgentLoop {
       // Execute tool calls and collect results
       // Install cancellation results immediately: Stop may allow another user
       // turn or persistence while a vault operation is still in flight.
-      const resultBlocks: ContentBlock[] = toolCalls.map(tc => ({
+      let resultBlocks: ContentBlock[] = toolCalls.map(tc => ({
         type: "tool_result", tool_use_id: tc.id,
         content: "Tool execution cancelled before completion.", is_error: true,
       }));
@@ -340,6 +341,10 @@ export class AgentLoop {
           is_error: result.isError,
           ...(result.images?.length ? { images: result.images } : {}),
         };
+        this.pruneToolImages();
+        // Pruning can copy this result message. Later calls in the same batch
+        // must update its current array, not the superseded result array.
+        resultBlocks = this.messages[this.messages.length - 1].content as ContentBlock[];
         callbacks.onToolResult(tc.name!, displayResult(result));
       }
 
@@ -352,10 +357,17 @@ export class AgentLoop {
     );
   }
 
+  /** Bound stored tool pixels as well as outgoing requests; user attachments stay. */
+  private pruneToolImages(): void {
+    const pruned = withoutOldToolImages(this.messages);
+    if (pruned.some((message, index) => message !== this.messages[index])) this.messages = pruned;
+  }
+
   /** Drop oldest messages when conversation gets too long, keeping recent context */
   private pruneHistory(): void {
     if (this.messages.length > MAX_CONVERSATION_LENGTH) {
       this.messages = trimHistory(this.messages, KEEP_RECENT);
     }
+    this.pruneToolImages();
   }
 }

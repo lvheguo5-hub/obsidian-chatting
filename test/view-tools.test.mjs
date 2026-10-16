@@ -490,3 +490,26 @@ test('Canvas source byte cap uses file metadata before reading the file', async 
   assert.equal(result.isError,false);
   assert.match(result.result,/Image preview omitted/);
 });
+
+test('Agent bounds retained and persisted tool images within one long multi-call turn', async () => {
+  const {app}=imageVault();
+  const agent=new api.AgentLoop(app,settings('anthropic'));
+  const cb=callbacks();
+  transport((body,index)=> index===0
+    ? response('anthropic',Array.from({length:12},(_,i)=>call(`v${i}`,'view_image',{path:'Pics/cat.png'})),'tool_use')
+    : response('anthropic',[text('Done')]));
+  await agent.run('Inspect repeatedly',cb,null,[catImage]);
+  assert.deepEqual(cb.errors,[]);
+  const saved=agent.exportMessages();
+  const blocks=saved.flatMap(m=>typeof m.content==='string'?[]:m.content);
+  assert.equal(blocks.filter(b=>b.type==='tool_result').length,12,'all tool pairs stay');
+  assert.equal(blocks.flatMap(b=>b.images??[]).length,4,'older tool pixels do not accumulate in memory or saved state');
+  assert.equal(blocks.find(b=>b.type==='image').image.id,'cat','user attachment stays');
+  assert.match(blocks.find(b=>b.tool_use_id==='v0').content,/omitted to save context/);
+  assert.equal(blocks.find(b=>b.tool_use_id==='v11').images.length,1,'later batch results are retained after pruning');
+  // Age the remaining tool images out without altering the imported source.
+  const snapshot=JSON.stringify(saved);
+  const restored=new api.AgentLoop(app,settings('anthropic'));restored.importMessages([...saved,{role:'user',content:'Second'},{role:'assistant',content:[text('OK')]},{role:'user',content:'Third'}]);
+  assert.equal(restored.exportMessages().flatMap(m=>typeof m.content==='string'?[]:m.content.flatMap(b=>b.images??[])).length,0);
+  assert.equal(JSON.stringify(saved),snapshot);
+});
