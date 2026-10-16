@@ -8,6 +8,10 @@ const FENCE_OPEN = /^([ \t]*)(`{3,}|~{3,})(.*)$/;
 const MATH_INFO = /^\s*(?:math|latex|tex)\s*$/i;
 // Inline code spans: a backtick run closed by a run of the same length.
 const CODE_SPAN = /(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g;
+// Keep raw HTML code and comments literal too. Match spans first so a tag
+// shown inside backticks cannot start an HTML region that swallows prose.
+const HTML_CODE = /<!--[\s\S]*?(?:-->|$)|<(?<htmlTag>code|pre)(?=[\s>])(?:[^"'<>]|"[^"]*"|'[^']*')*>[\s\S]*?(?:<\/\k<htmlTag>\s*>|$)/i;
+const LITERAL_CODE = new RegExp(`${CODE_SPAN.source}|${HTML_CODE.source}`, "gi");
 // An escaped backslash is matched first, so `\\[` or `\\(` (e.g. a LaTeX
 // line break like `\\[2pt]`) is never taken for an opening delimiter.
 const DISPLAY = /\\\\|\\\[([\s\S]*?)\\\]/g;
@@ -17,7 +21,12 @@ const LINK_ALIAS = /(\[\[[^\]|\n]*[^\]|\\\n])\|([^\]\n]*\]\])/g;
 
 export function normalizeMathMarkdown(source: string): string {
   // Line endings are unified, so a CRLF fence is still recognized.
-  const lines = source.split(/\r?\n/);
+  const normalized = source.replace(/\r\n/g, "\n");
+  const lines = normalized.split("\n");
+  let offset = 0;
+  const starts = lines.map(line => { const start = offset; offset += line.length + 1; return start; });
+  const htmlRegions = [...normalized.matchAll(LITERAL_CODE)].filter(span => span[0].startsWith("<"))
+    .map(span => ({ start: span.index!, end: span.index! + span[0].length }));
   const out: string[] = [];
   let prose: string[] = [];
   const containerLists = new Map<number, number[]>();
@@ -27,6 +36,11 @@ export function normalizeMathMarkdown(source: string): string {
   };
 
   for (let i = 0; i < lines.length; i++) {
+    // A Markdown-looking fence in a raw HTML code body is literal content.
+    if (htmlRegions.some(region => starts[i] >= region.start && starts[i] < region.end)) {
+      prose.push(lines[i]);
+      continue;
+    }
     const container = quoteContainer(lines[i]);
     const line = container.content;
     for (const depth of containerLists.keys()) {
@@ -123,7 +137,7 @@ function normalizeProse(text: string): string {
   const tableRows = tableRowStarts(text);
   let result = "";
   let cursor = 0;
-  for (const span of text.matchAll(CODE_SPAN)) {
+  for (const span of text.matchAll(LITERAL_CODE)) {
     const index = span.index ?? 0;
     result += normalizeDelimiters(text.slice(cursor, index), cursor, tableRows, text) + span[0];
     cursor = index + span[0].length;

@@ -123,3 +123,20 @@ test('container math fences keep the list and quote prefixes', () => {
   assert.equal(normalize('> ```math\n> x^2\n> ```'), '> $$\n> x^2\n> $$');
   assert.equal(normalize('> - ```math\n>   x^2\n>   ```'), '> - $$\n>   x^2\n>   $$');
 });
+
+test('raw HTML code elements preserve literal delimiters and aliases', () => {
+  for (const literal of [
+    '<code>\\(literal\\)</code>',
+    '<PRE class="sample">\\[literal\\]</PRE>',
+    '<pre><code>\\(literal\\)\n| [[A|a]] |</code></pre>',
+    '<code title="a > b">\\(literal\\)</code>',
+    '<code>\\(unclosed\\)',
+  ]) assert.equal(normalize('Before \\(x\\) ' + literal), 'Before $x$ ' + literal);
+  assert.equal(normalize('`<code>` then \\(x\\)'), '`<code>` then $x$');
+  assert.equal(normalize('<!-- <code> --> then \\(x\\)'), '<!-- <code> --> then $x$');
+});
+
+test('fences inside raw HTML code elements stay literal', () => {
+  const source = 'Before \\(x\\)\n\n<pre>\n```math\n\\(literal\\)\n```\n</pre>\n\nAfter \\(y\\)';
+  assert.equal(normalize(source), source.replace('Before \\(x\\)', 'Before $x$').replace('After \\(y\\)', 'After $y$'));
+});
