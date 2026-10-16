@@ -96,6 +96,7 @@ export async function sendOpenAIMessage(
   // doesn't carry forward the system prompt
   body.instructions = systemPrompt;
 
+  const requestBody = serializeRequest(body);
   let response;
   try {
     response = await requestUrl({
@@ -105,7 +106,7 @@ export async function sendOpenAIMessage(
         Authorization: `Bearer ${settings.apiKey}`,
         "Content-Type": "application/json",
       },
-      body: serializeRequest(body),
+      body: requestBody,
       throw: false,
     });
   } catch (e: unknown) {

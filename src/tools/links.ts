@@ -16,15 +16,16 @@ const MAX_LINES = 3;
 const MAX_LINE_CHARS = 200;
 
 export async function getLinks(app: App, file: TFile): Promise<ToolResult> {
+  const touched = new Set<string>([file.path]);
   const sections = [
-    await linkedMentions(app, file),
-    await unlinkedMentions(app, file),
+    await linkedMentions(app, file, touched),
+    await unlinkedMentions(app, file, touched),
     outgoingLinks(app, file),
   ];
-  return { result: `Links of ${file.path}\n\n${sections.join("\n\n")}`, isError: false };
+  return { result: `Links of ${file.path}\n\n${sections.join("\n\n")}`, isError: false, instructionPaths: [...touched] };
 }
 
-async function linkedMentions(app: App, file: TFile): Promise<string> {
+async function linkedMentions(app: App, file: TFile, touched: Set<string>): Promise<string> {
   const sources = Object.entries(app.metadataCache.resolvedLinks)
     .filter(([, targets]) => targets[file.path])
     .map(([source]) => source)
@@ -41,19 +42,21 @@ async function linkedMentions(app: App, file: TFile): Promise<string> {
         lines.add(link.position.start.line);
       }
     }
+    if (source && lines.size) touched.add(source.path);
     const text = source && lines.size ? await app.vault.cachedRead(source) : "";
     entries.push(entry(path, `${count} link${count === 1 ? "" : "s"}`, text, [...lines]));
   }
   return `Linked mentions (${sources.length} note${sources.length === 1 ? "" : "s"}):\n${entries.join("\n")}${more(sources.length)}`;
 }
 
-async function unlinkedMentions(app: App, file: TFile): Promise<string> {
+async function unlinkedMentions(app: App, file: TFile, touched: Set<string>): Promise<string> {
   const names = mentionNames(app, file);
   if (names.length === 0) return "Unlinked mentions: none.";
   const pattern = new RegExp(`(?<![\\p{L}\\p{N}_])(?:${names.map(escapeRegExp).join("|")})(?![\\p{L}\\p{N}_])`, "giu");
   const found: { path: string; text: string; lines: number[] }[] = [];
   for (const note of app.vault.getMarkdownFiles()) {
     if (note.path === file.path) continue;
+    touched.add(note.path);
     const text = await app.vault.cachedRead(note);
     if (!text) continue;
     const skipped = skippedRanges(app.metadataCache.getFileCache(note));

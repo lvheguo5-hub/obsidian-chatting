@@ -5,10 +5,17 @@
  */
 export const MAX_REQUEST_BYTES = 30_000_000;
 
+export class RequestBudgetError extends Error {
+  constructor() {
+    super("This request exceeds the 30 MB chat limit. Remove some attachments or start a new chat to reduce its history.");
+    this.name = "RequestBudgetError";
+  }
+}
+
 export function serializeRequest(body: Record<string, unknown>): string {
   const json = JSON.stringify(body);
   if (json.length > MAX_REQUEST_BYTES || new TextEncoder().encode(json).byteLength > MAX_REQUEST_BYTES) {
-    throw new Error("This request exceeds the 30 MB chat limit. Remove some attachments or start a new chat to reduce its history.");
+    throw new RequestBudgetError();
   }
   return json;
 }

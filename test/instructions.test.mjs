@@ -185,6 +185,36 @@ test('A search with no content match still delivers instructions from the files 
   assert.match(resultText(toolResults(requests[1]).at(-1)), /No results found[\s\S]*Work search rule/);
 });
 
+test('get_links delivers folder instructions for its linked sources and unlinked scan, including notes without a match', async () => {
+  const { app, loop, files } = loopWith({
+    'Target/AGENTS.md': 'Target scope.',
+    'Target/Plan.md': 'Plan',
+    'Linked/AGENTS.md': 'Linked source scope.',
+    'Linked/Source.md': 'See [[Plan]].',
+    'Unlinked/AGENTS.md': 'Unlinked scope.',
+    'Unlinked/Diary.md': 'Plan today.',
+    'NoMatch/AGENTS.md': 'Nonmatching scope.',
+    'NoMatch/Other.md': 'Something else.',
+  });
+  const paths = ['Target/Plan.md', 'Linked/Source.md', 'Unlinked/Diary.md', 'NoMatch/Other.md'];
+  const byPath = path => files.has(path) ? { path, basename: path.split('/').at(-1).replace(/\.md$/, ''), extension: 'md' } : null;
+  app.vault.getFileByPath = byPath;
+  app.vault.getMarkdownFiles = () => paths.map(byPath);
+  app.metadataCache = {
+    resolvedLinks: { 'Linked/Source.md': { 'Target/Plan.md': 1 } }, unresolvedLinks: {},
+    getFirstLinkpathDest: () => byPath('Target/Plan.md'),
+    getFileCache: file => file.path === 'Linked/Source.md' ? { links: [{ link: 'Plan', position: { start: { line: 0, offset: 4 }, end: { line: 0, offset: 12 } } }] } : {},
+  };
+  const requests = transport((body, index) => index === 0
+    ? response('anthropic', [call('links', 'get_links', { path: 'Target/Plan.md' })], 'tool_use')
+    : response('anthropic', [text('Done')], 'end_turn', index));
+  await loop.run('Find links', callbacks());
+  const result = resultText(toolResults(requests[1]).at(-1));
+  for (const scope of ['Target scope', 'Linked source scope', 'Unlinked scope', 'Nonmatching scope']) assert.ok(result.includes(scope), scope);
+  assert.equal(result.split('Target scope.').length - 1, 1);
+  assert.doesNotMatch(JSON.stringify(loop.exportMessages()), /instructionPaths/);
+});
+
 // A settings row that records its name, description and button.
 function row() {
   const r = { setName(name) { r.name = name; return r; }, setDesc(desc) { r.desc = desc; return r; } };

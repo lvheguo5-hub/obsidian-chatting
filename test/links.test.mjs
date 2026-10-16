@@ -37,7 +37,8 @@ function linksApp() {
 }
 
 test('get_links: linked mentions with the line, unlinked mentions by name or alias, outgoing links', async () => {
-  const { result, isError } = await api.executeTool(linksApp(), 'get_links', {}, async () => '');
+  const { result, isError, instructionPaths } = await api.executeTool(linksApp(), 'get_links', {}, async () => '');
+  assert.deepEqual([...instructionPaths].sort(), Object.keys(TEXT).sort());
   assert.equal(isError, false);
   assert.match(result, /Linked mentions \(1 note\):\n- Plan\.md \(1 link\)\n  > Work on the \[\[Garden#Beds\|beds\]\] today\./);
   // "garden shed" in Plan.md and "veg patch" and "Garden again" in Diary.md; not

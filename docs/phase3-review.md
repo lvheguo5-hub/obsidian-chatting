@@ -74,3 +74,14 @@ Head `752adfd4dc310d4aac549d57248b4aff6baabbbc` passed CI and its exact-head Com
 - Rejected linked attachments left a visible-only user turn with no editable API history. The view now stages the user row until preflight succeeds and restores text, picked files/images and selection on preflight failure. Pending undo notes remain intact. Cancellation tests cover both a reused empty chat and switching from an existing conversation.
 
 All 433 tests, TypeScript, Svelte (zero errors/warnings) and production build pass. These repairs require fresh external review and an exact-head Preview after push.
+
+Desktop supplement for `f662080`: the updated candidate was loaded only in the isolated desktop QA vault. The mounted native Svelte component restored the prompt and picked-file chip after a linked-document budget refusal; visible user rows stayed at zero and the agent stayed empty. This was verified through Obsidian's native CLI/DOM, without a provider request; no screenshot or new phone acceptance is claimed. The first harness waited on an inactive animation frame, so its pending CLI was terminated after independent DOM verification, fixture cleanup and a saved test-vault reload. Only the newly created budget fixture was removed.
+
+## External review, round 4
+
+Head `f662080721467978d2c14e61f9243debc4a3ecef` passed CI and its exact-head Community Preview. Codex found that final request-size rejection (after retained history is encoded) also needed preflight rollback, and that get_links needed to report every note it read.
+
+- Final JSON-size rejection is now a typed error preserved outside the network wrappers. If it rejects the first request, the loop restores its prior API history and clears provider cursors for safe replay; the view removes the pending visible turn and restores the complete draft/selection and undo notes. A smaller retry can send without clearing the existing conversation. Regression tests exercise all three providers with individually valid attachments and retained history over the transport ceiling. Later failures after model/tool work keep that work intact.
+- get_links reports all linked/unlinked source reads through instructionPaths, including non-matches. The existing result path adds their rules, avoids repeating the target folder rules in that result, and strips internal paths before UI/persistence.
+
+All 437 tests, TypeScript, Svelte (zero errors/warnings) and production build pass. Fresh review, CI and an exact-head Preview remain required for the repair commit.

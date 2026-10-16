@@ -209,13 +209,14 @@ async function sendOnce(
     headers["ChatGPT-Account-Id"] = accountId;
   }
 
+  const requestBody = serializeRequest(body);
   let response;
   try {
     response = await requestUrl({
       url: CODEX_RESPONSES_URL,
       method: "POST",
       headers,
-      body: serializeRequest(body),
+      body: requestBody,
       throw: false,
     });
   } catch (e: unknown) {

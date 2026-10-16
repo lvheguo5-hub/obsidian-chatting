@@ -106,6 +106,7 @@ export async function sendAnthropicMessage(
     body.tools = apiTools;
   }
 
+  const requestBody = serializeRequest(body);
   let response;
   try {
     response = await requestUrl({
@@ -116,7 +117,7 @@ export async function sendAnthropicMessage(
         "anthropic-version": "2023-06-01",
         "content-type": "application/json",
       },
-      body: serializeRequest(body),
+      body: requestBody,
       throw: false,
     });
   } catch (e: unknown) {

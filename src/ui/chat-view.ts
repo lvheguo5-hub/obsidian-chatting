@@ -477,6 +477,17 @@ export class ObsidianChatView extends ItemView {
       started = true;
       await this.plugin.agent.run(text, {
         changes,
+        onPreflightRejected: (error) => {
+          started = false;
+          const pending = history.findIndex(row => row.type === "user" && row.turnId === turnId);
+          if (pending !== -1) history.splice(pending);
+          chat.cutMessages(turnId);
+          this.plugin.touchConversation();
+          chat.setTitle(conversation.title);
+          chat.hideThinking();
+          chat.addError(error);
+          history.push({ type: "error", text: error });
+        },
         onThinking: () => {
           chat.showThinking();
         },

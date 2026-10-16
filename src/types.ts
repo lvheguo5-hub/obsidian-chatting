@@ -247,6 +247,8 @@ export interface AgentCallbacks {
   onResponse: (text: string) => void;
   onAskUser: (question: string) => Promise<string>;
   onError: (error: string) => void;
+  /** A first request rejected locally before transport; the UI can restore its unsent draft. */
+  onPreflightRejected?: (error: string) => void;
   /** Where the turn's tools record their vault changes (undo per answer). */
   changes?: ChangeLog;
 }

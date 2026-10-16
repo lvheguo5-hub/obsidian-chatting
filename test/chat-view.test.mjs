@@ -16,7 +16,9 @@ function fakeChat() {
   const chat = {
     shown: [],
     askUser: null,
-    addUserMessage(value, images = []) { chat.shown.push({ id: nextId++, type: 'user', text: value, images }); },
+    addUserMessage(value, images = [], turnId) { chat.shown.push({ id: nextId++, type: 'user', text: value, images, turnId }); },
+    cutMessages(turnId) { const at = chat.shown.findIndex(row => row.turnId === turnId); if (at !== -1) chat.shown.splice(at); },
+    restoreDraft(text, selection, images, files) { chat.draft = { text, selection, images, files }; },
     addAssistantMessage(value) { chat.shown.push({ id: nextId++, type: 'assistant', text: value }); },
     addToolCall(name, input) { chat.shown.push({ id: nextId, type: 'tool-call', toolName: name, toolInput: input }); return nextId++; },
     updateToolResult(id) { const msg = chat.shown.find(m => m.id === id); if (msg) msg.type = 'tool-result'; },
@@ -312,3 +314,37 @@ test('An over-budget attachment turn preserves pending undo notes and leaves the
   assert.equal(requests.length, 1);
   assert.match(JSON.stringify(requests[0]), /The user undid the previous edit/);
 });
+
+for (const provider of ['anthropic', 'openai', 'chatgpt-oauth']) {
+  test(`${provider}: final request-size rejection rolls back both histories and restores the unsent draft`, async () => {
+    api.setChatGPTOAuthService({ getUsableCredential: async () => ({ accessToken: 'fake-token', accountId: 'fake-account' }) });
+    const { plugin, view, chat } = await chatSetup(provider);
+    const file = { id: 'pdf', fileName: 'TenMiB.pdf', mediaType: 'application/pdf', sizeBytes: 10 * 1024 * 1024, data: 'A'.repeat(4 * Math.ceil(10 * 1024 * 1024 / 3)) };
+    plugin.agent.importMessages([
+      { role: 'user', turnId: 'old1', content: [{ type: 'file', file }, text('Old one')] },
+      { role: 'assistant', content: [text('Read one')] },
+      { role: 'user', turnId: 'old2', content: [{ type: 'file', file: { ...file, id: 'old2-pdf' } }, text('Old two')] },
+      { role: 'assistant', content: [text('Read two')] },
+    ]);
+    plugin.chatHistory.push({ type: 'user', text: 'Old one', turnId: 'old1' }, { type: 'assistant', text: 'Read one' }, { type: 'user', text: 'Old two', turnId: 'old2' }, { type: 'assistant', text: 'Read two' });
+    plugin.activeConversation.notes = ['The user undid an earlier edit.'];
+    const requests = answering(provider);
+    const current = { ...file, id: 'new-pdf' };
+    const selection = { filePath: 'Untitled.md', text: 'Original' };
+    await view.handleUserMessage('Too large with history', selection, [], [current]);
+    assert.equal(requests.length, 0);
+    assert.equal(plugin.agent.exportMessages().length, 4);
+    assert.equal(plugin.chatHistory.filter(row => row.type === 'user').length, 2);
+    assert.equal(chat.shown.some(row => row.type === 'user' && row.text === 'Too large with history'), false);
+    assert.equal(chat.draft.text, 'Too large with history');
+    assert.equal(chat.draft.files[0], current);
+    assert.equal(chat.draft.selection, selection);
+    assert.deepEqual(plugin.activeConversation.notes, ['The user undid an earlier edit.']);
+    assert.match(chat.shown.at(-1).text, /30 MB chat limit/);
+    assert.equal(view.running, false);
+    await view.handleUserMessage('A small retry without new files', null);
+    assert.equal(requests.length, 1);
+    assert.equal(plugin.agent.exportMessages().filter(row => row.role === 'user').length, 3);
+    assert.equal(plugin.activeConversation.notes, undefined);
+  });
+}

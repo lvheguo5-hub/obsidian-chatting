@@ -22,6 +22,7 @@ import { buildSystemPrompt, buildContextMessage } from "./system-prompt";
 import { trimHistory, cutBeforeTurn, editableTurn, newTurnId, withoutOldToolImages, MAX_CONVERSATION_LENGTH } from "./history";
 import { debugLog } from "../debug";
 import { attachmentBudgetError } from "../files/attachments";
+import { RequestBudgetError } from "../api/request-budget";
 
 /**
  * The API history: saving keeps the last 80 messages. Before a turn, a
@@ -252,6 +253,7 @@ export class AgentLoop {
           { type: "text", text: fullMessage },
         ]
       : fullMessage;
+    const beforeTurn = this.messages.slice();
     this.messages.push({ role: "user", content, turnId });
 
     // Prune if conversation is too long
@@ -296,6 +298,15 @@ export class AgentLoop {
         if (isStopped()) return;
         const msg = e instanceof Error ? e.message : String(e);
         debugLog(this.app, "API_ERROR", { error: msg, model: this.settings.model, provider: this.settings.provider });
+        if (i === 0 && e instanceof RequestBudgetError) {
+          // Nothing reached the provider or tools. Undo local pruning and
+          // the pending user turn so its attachments cannot poison retries.
+          this.messages = beforeTurn;
+          clearOpenAIState();
+          clearChatGPTOAuthState();
+          (callbacks.onPreflightRejected ?? callbacks.onError)(msg);
+          return;
+        }
         callbacks.onError(msg);
         return;
       }
@@ -376,7 +387,8 @@ export class AgentLoop {
           ? { result: `No changes made. Read the folder instructions below, then retry the tool if it complies.\n\n${folderRules}`, isError: true }
           : await executeTool(this.app, tc.name!, tc.input!, callbacks.onAskUser, scope, callbacks.changes, turnSettings.skillsFolder);
         if (result.instructionPaths?.length) {
-          const discovered = await folderInstructions(this.app, result.instructionPaths, knownRules);
+          const included = instructionsGiven([{ role: "user", content: [{ type: "tool_result", tool_use_id: tc.id, content: folderRules }] }]);
+          const discovered = await folderInstructions(this.app, result.instructionPaths, new Set([...knownRules, ...included]));
           folderRules = [folderRules, discovered].filter(Boolean).join("\n\n");
         }
         debugLog(this.app, "TOOL_CALL", { name: tc.name, input: tc.input, result: result.result, isError: result.isError });
