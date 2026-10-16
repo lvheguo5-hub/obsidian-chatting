@@ -22,7 +22,7 @@
 ## ✨ Why?
 
 - **Three providers, your choice** — Anthropic API, OpenAI API, or sign in with your ChatGPT account. No marketplace of half-broken providers.
-- **14 vault-native tools** — read, edit, search, create, rename, frontmatter, backlinks. The agent goes from idea to changed files without leaving the chat.
+- **21 vault-native tools** — read, edit, search, create, rename, frontmatter, tags and properties, links, canvases, web pages, images. The agent goes from idea to changed files without leaving the chat.
 - **Mobile-first chat** — requests use Obsidian’s mobile-compatible transport. Desktop offers browser sign-in; mobile uses device-code sign-in.
 - **Selection scope** — highlight text in any note, send it to chat, the assistant edits only inside the selection.
 - **Secrets in the OS keychain** — never in `data.json`, never synced across devices.
@@ -59,15 +59,25 @@ Highlight text in any note, right-click, choose **Send selection to chat**. The 
 You: tighten this — keep my voice
 ```
 
+Once sent, the message shows the selection it worked on above it, like a quote.
+
 The agent uses find-and-replace scoped to the selection text, and the tools enforce it for that turn: in that note, only the highlighted copy of the text can change; rewriting the whole note, inserting, setting properties, or renaming or deleting it (or a folder it's in) is refused. The editor snapshot keeps the selected copy anchored when text is added above it. If the selected text changed or its identity is ambiguous, the tools ask you to select it again. Other notes stay editable, and renaming one of them still updates links to it in this note.
 
-## 🛠️ 14 vault-native tools
+## ✏️ Edit, copy, regenerate
+
+Click the pencil under a message you sent to change it: the chat continues from there with the same images and selection, and what came after it is dropped. Changes the AI already made to notes stay. Every answer has **Copy** (its Markdown source); the last one also has **Regenerate**. With a mouse the buttons appear on hover; on touch screens they are always shown.
+
+## 🛠️ 21 vault-native tools
 
 | Group | Tools | What they do |
 |---|---|---|
-| **Read** | `read_document`, `read_file`, `search_vault`, `list_files`, `get_backlinks`, `get_properties`, `get_current_datetime` | Open notes/files, search by name and content, browse the tree, find backlinks, read frontmatter, fetch the current time in your locale. |
+| **Read** | `read_document`, `read_file`, `search_vault`, `list_files`, `get_links`, `get_properties`, `get_current_datetime` | Open notes/files, search by name and content, browse the tree, find a note's links as the Backlinks and Outgoing links panes show them (linked mentions with their lines, unlinked mentions, outgoing links), read frontmatter, fetch the current time in your locale. |
 | **Write** | `edit_document`, `create_file`, `set_properties` | Surgical find-and-replace / insert / full replace; create new notes (parent folders auto-created); safe YAML frontmatter merge or remove. |
 | **Manage** | `rename_file`, `delete_file`, `open_document`, `ask_user` | Rename or move (links auto-update); move to trash (respects your trash setting); open a file in the editor; pause and ask you when something is ambiguous. |
+| **Query** | `query_notes`, `list_metadata` | Find notes by tags (nested tags too, all or any) and properties (a value or just set), in a folder, sorted by path, last change or a property ("my #project notes that are active, by due date"); list the tags and properties the vault uses. From Obsidian's metadata cache, without reading the notes. |
+| **Canvas** | `read_canvas`, `edit_canvas` | Read a canvas as an outline of groups, cards and connections; add, change, move or remove cards and connections in one all-or-nothing step, with new cards placed so they don't overlap. `search_vault` also finds text on canvas cards and labels. |
+| **Web** | `read_web_page` | Read a web page (a link you give, or one web search found) as Markdown, without navigation and scripts; long pages in parts. |
+| **Images** | `view_image`, `view_canvas` | Look at an image in the vault (PNG, JPEG, GIF or WebP; large ones scaled down), or at a canvas as a picture of its layout with a legend of its cards, the whole canvas or zoomed to one group or card. |
 
 ## ⚙️ Providers
 
@@ -92,6 +102,13 @@ ChatGPT OAuth discovers the latest stable client version from OpenAI's official 
 ### Thinking level
 
 Below **Model**, **Thinking level** offers *Default* plus the levels the model list gives for the selected model: the Codex catalog's reasoning levels for a ChatGPT account, and the effort levels from Anthropic's `/v1/models`. The row is hidden when the model has none (OpenAI's API-key model list gives none). *Default* keeps the model's own default. A saved level the selected model doesn't offer stays saved and is marked "(not available)"; requests then use the default. The chat header shows the model and its level, e.g. `GPT-5.5 · high`. Anthropic's thinking mode (adaptive or a thinking budget) follows the same list; models it has no data on keep the mode chosen by model name.
+
+### Other settings
+
+- **Enter sends message** — on by default (Shift+Enter starts a new line). Turn it off to make Enter start a new line; then send with the send button or Ctrl+Enter (Cmd+Enter on a Mac). Editing a sent message follows the same keys.
+- **Debug log** — off by default. For troubleshooting it writes what is needed to follow a problem to `debug.log` in the plugin folder: your messages as sent (with their context), the model's answers and tool calls, tool results and errors (never keys). **Copy** (or the *Copy debug log* command) puts it on the clipboard; **Clear** deletes it.
+
+While an answer is being generated, the screen doesn't go to sleep (where the device allows it). Stopping before any of the answer is shown leaves a quiet *Stopped.* note in the chat.
 
 ## 🚀 Quick start
 
@@ -165,7 +182,7 @@ ln -s "$(pwd)" /path/to/vault/.obsidian/plugins/chatting-with-ai
 ## 🗺️ Roadmap
 
 - [x] Three providers (Anthropic, OpenAI, ChatGPT account)
-- [x] 14 vault-native tools
+- [x] 21 vault-native tools
 - [x] iOS / Android parity
 - [x] Selection scope
 - [x] Official Obsidian Community Plugins listing
@@ -180,7 +197,7 @@ Have a request? Open an issue.
 <details>
 <summary><b>Will my notes be uploaded somewhere?</b></summary>
 
-Only what the agent needs for the current turn. When you ask a question, the agent decides which tools to call — `read_document`, `search_vault`, etc. — and the contents fetched by those calls (plus the active note context) are sent to your chosen provider. Images you attach are sent with that message and retained in local chat history until you clear the conversation. Nothing is uploaded in the background. There is no vault index.
+Only what the agent needs for the current turn. When you ask a question, the agent decides which tools to call — `read_document`, `search_vault`, etc. — and the contents fetched by those calls (plus the active note context) are sent to your chosen provider. Images you attach are sent with that message and kept in the local chat history until you clear the conversation or the message is older than the part of the chat the plugin keeps for the provider; so are images the agent looks at (`view_image`, `view_canvas`). Nothing is uploaded in the background. There is no vault index. When the agent reads a web page (`read_web_page`), your device loads that address, as a browser would, and the page's text goes to your provider like a note's.
 
 </details>
 
@@ -208,7 +225,14 @@ Probably not — keeping the provider list small is a deliberate choice. Two API
 <details>
 <summary><b>Where is chat history stored? Will it sync?</b></summary>
 
-Locally in `<vault>/.obsidian/plugins/chatting-with-ai/chat-state.json`, with a second copy in `chat-state.next.json` to recover from an interrupted save. If neither copy can be read, existing files are kept as `chat-state.corrupt-<time>.json` or `chat-state.next.corrupt-<time>.json` instead of being overwritten. If a backup cannot be made, saving is disabled for that session and a notice explains why. It is **not** synced by Obsidian Sync (plugin data files are excluded by default). API keys live in the OS keychain via SecretStorage and are also not synced. Attached image data is retained in this local chat history until you clear the conversation.
+Locally in `<vault>/.obsidian/plugins/chatting-with-ai/chat-state.json`, with a second copy in `chat-state.next.json` to recover from an interrupted save. If neither copy can be read, existing files are kept as `chat-state.corrupt-<time>.json` or `chat-state.next.corrupt-<time>.json` instead of being overwritten; a chat saved by a newer version of the plugin is kept as `chat-state.v<version>-<time>.json` when you go back to an older one. If a backup cannot be made, saving is disabled for that session and a notice explains why. It is **not** synced by Obsidian Sync (plugin data files are excluded by default). API keys live in the OS keychain via SecretStorage and are also not synced. Attached images are saved once, with the recent messages kept for the provider, until you clear the conversation; in older messages the chat shows just the image's name. Images the agent looked at are kept the same way, in the part of the chat kept for the provider.
+
+</details>
+
+<details>
+<summary><b>Is it safe to let the agent read web pages?</b></summary>
+
+Mind one risk: `read_web_page` loads pages from your device, so it can also reach addresses only your device reaches (`localhost`, your home or company network). Text that hides instructions — on a web page, in a note, in a file — could get the agent to read such an address, or to put vault content into an address it loads, which sends that content to the site. Each page comes marked as information, not instructions, but that isn't a guarantee. Each step shows the address it reads; don't ask the agent to read pages while you work with content you don't trust.
 
 </details>
 

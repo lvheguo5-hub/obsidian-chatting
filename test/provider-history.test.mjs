@@ -528,7 +528,7 @@ test('Declarative settings stay searchable and reuse the legacy renderers withou
   const plugin={settings:settings('openai')}; const tab=new api.ChatSettingTab({},plugin);
   globalThis.__providerRequest=async()=>assert.fail('Indexing must not perform network I/O');
   const definitions=tab.getSettingDefinitions();
-  assert.deepEqual(definitions.map(d=>d.name),['Provider','API key','ChatGPT account','Model','Custom model ID','Thinking level','Web search','Max tool iterations']);
+  assert.deepEqual(definitions.map(d=>d.name),['Provider','API key','ChatGPT account','Model','Custom model ID','Thinking level','Web search','Enter sends message','Max tool iterations','Debug log']);
   assert.equal(definitions[1].visible(),true); assert.equal(definitions[2].visible(),false);
   plugin.settings.provider='chatgpt-oauth'; assert.equal(definitions[1].visible(),false); assert.equal(definitions[2].visible(),true);
   let updates=0,displays=0; tab.display=()=>displays++;
@@ -563,4 +563,35 @@ test('Stopping during rate-limit backoff prevents the retried network request', 
     await assert.rejects(api.sendMessage(settings('openai'),[{role:'user',content:'test'}],[],'test',()=>stopped),/cancelled/);
     assert.equal(requests,1);
   } finally { globalThis.window=previousWindow; }
+});
+
+test('OpenAI: an aged-out tool image breaks the previous_response_id chain and replays the pruned history', async () => {
+  const history = [{role:'user',content:'First'}, {role:'assistant',content:[call('v1','view_image',{path:'one.png'})]},
+    {role:'user',content:[{...result('v1','one'),images:[{...image,id:'old',data:'old-image'}]}]}];
+  const requests = transport((body,index)=>response('openai',[text('Done')],'end_turn',index));
+  let answer = await api.sendOpenAIMessage(settings('openai'),history,[],'System');
+  history.push(assistant(answer),{role:'user',content:'Second'});
+  answer = await api.sendOpenAIMessage(settings('openai'),history,[],'System');
+  assert.equal(requests[1].previous_response_id,'resp_0');
+  history.push(assistant(answer),{role:'user',content:'Third'});
+  await api.sendOpenAIMessage(settings('openai'),history,[],'System');
+  assert.equal(requests[2].previous_response_id,undefined);
+  assert.match(JSON.stringify(requests[2].input),/omitted to save context/);
+  assert.ok(!JSON.stringify(requests[2].input).includes('old-image'));
+  assert.equal(history[2].content[0].images[0].data,'old-image');
+});
+
+test('OpenAI: a single long tool turn breaks the chain when its image budget is exceeded', async () => {
+  const history = [{role:'user',content:'Inspect images'}];
+  const requests = transport((body,index)=>response('openai',[call(`v${index}`,'view_image',{path:`${index}.png`})],'tool_use',index));
+  let answer = await api.sendOpenAIMessage(settings('openai'),history,[],'System');
+  for(let i=0;i<5;i++) {
+    history.push(assistant(answer),{role:'user',content:[{...result(`v${i}`,'picture'),images:[{...image,id:`pic${i}`,data:`picture-${i}`}]}]});
+    answer = await api.sendOpenAIMessage(settings('openai'),history,[],'System');
+  }
+  assert.equal(requests[4].previous_response_id,'resp_3');
+  assert.equal(requests[5].previous_response_id,undefined);
+  const replay = JSON.stringify(requests[5].input);
+  assert.ok(!replay.includes('picture-0'));
+  for(let i=1;i<5;i++)assert.ok(replay.includes(`picture-${i}`));
 });

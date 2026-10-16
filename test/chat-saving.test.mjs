@@ -320,6 +320,8 @@ test('Malformed nested UI history fields recover the readable backup before view
     { type: 'user', text: 'x', images: [{ ...image, data: 42 }] },
     { type: 'user', text: 'x', images: [image, image] },
     { type: 'assistant' },
+    { type: 'user', text: 'x', selection: { filePath: 42, text: 'x' } },
+    { type: 'user', text: 'x', selection: 'bad' },
     { type: 'tool-result' },
     { type: 'tool-result', toolName: 'read_file' },
     { type: 'tool-result', toolResult: { result: 'ok', isError: false } },
@@ -341,5 +343,21 @@ test('Valid image attachments and tool result history remain intact on restore',
     { type: 'assistant', text: 'Answer' },
   ];
   const { plugin } = await loadFrom(JSON.stringify({ chatHistory }));
-  assert.deepEqual(plugin.chatHistory, chatHistory);
+  // A chat saved before turn IDs gets them on load (edit and regenerate).
+  assert.deepEqual(plugin.chatHistory.map(({ turnId: _turnId, ...entry }) => entry), chatHistory);
+});
+
+test('Malformed API images cannot replace validated UI attachments during v2 restore', async () => {
+  const image = { id: 'one', fileName: 'one.png', mediaType: 'image/png', data: 'AA==', sizeBytes: 1 };
+  for (const block of [
+    { type: 'image', image: { id: 'one', data: 42 } },
+    { type: 'image', image: null },
+    { type: 'tool_result', tool_use_id: 't', images: [{ ...image, data: 42 }] },
+  ]) {
+    const content = JSON.stringify({ version: 2, savedAt: 2000,
+      chatHistory: [{ type: 'user', text: 'Look', images: [{ id: 'one', fileName: 'one.png', mediaType: 'image/png', sizeBytes: 1 }] }],
+      agentMessages: [{ role: 'user', content: [block] }] });
+    const { plugin } = await loadFrom(content, { next: savedState('Recovered', 1000) });
+    assert.deepEqual(texts(plugin), ['Recovered']);
+  }
 });

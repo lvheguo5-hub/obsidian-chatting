@@ -14,6 +14,10 @@ export interface ChatSettings {
   thinkingLevel: string;
   maxIterations: number;
   enableWebSearch: boolean;
+  /** Enter sends (Shift+Enter: new line); off: Enter is a new line, Ctrl/Cmd+Enter sends. */
+  enterSends: boolean;
+  /** Write `debug.log` in the plugin folder (troubleshooting; logs messages, never keys). */
+  debugLog: boolean;
   modelCatalog?: import("./api/model-catalog").CatalogState;
 }
 
@@ -39,6 +43,8 @@ export const DEFAULT_SETTINGS: ChatSettings = {
   thinkingLevel: "",
   maxIterations: 20,
   enableWebSearch: true,
+  enterSends: true,
+  debugLog: false,
 };
 
 // ─── Unified Message Format ─────────────────────────────────────────────────
@@ -62,6 +68,8 @@ export interface ContentBlock {
   tool_use_id?: string;
   content?: string;
   is_error?: boolean;
+  /** tool_result only: images the tool returned (view_image, view_canvas). */
+  images?: ImageAttachment[];
 }
 
 export interface UnifiedMessage {
@@ -69,6 +77,11 @@ export interface UnifiedMessage {
   content: string | ContentBlock[];
   /** Exact provider output for replay, separate from user-visible content. */
   replay?: ProviderReplay;
+  /**
+   * On the message that starts a user turn: the turn's ID, also on its
+   * entry in the chat view's history, so both can be cut there.
+   */
+  turnId?: string;
 }
 
 export interface ProviderReplay {
@@ -120,6 +133,26 @@ export interface SelectionScope {
   occurrence?: number;
   /** In-memory editor snapshot used to relocate safely; never sent to the model. */
   sourceText?: string;
+  /** Persisted fingerprint; replay refuses edits if the note has changed. */
+  sourceHash?: string;
+}
+
+// ─── Chat View History ──────────────────────────────────────────────────────
+
+/** One entry of the visible chat history (`plugin.chatHistory`). */
+export interface ChatHistoryEntry {
+  type: "user" | "assistant" | "tool-result" | "error";
+  text?: string;
+  images?: ImageAttachment[];
+  /** User entries of a turn (not `ask_user` answers): the turn's ID, shared with the agent history. */
+  turnId?: string;
+  /** User entries: the selection scope the turn ran with. */
+  selection?: SelectionScope;
+  toolName?: string;
+  toolInput?: Record<string, unknown>;
+  toolResult?: { result: string; isError: boolean };
+  /** Error entries: "stopped" is the quiet note left by Stop before any answer was shown. */
+  errorKind?: "stopped";
 }
 
 // ─── Tool Execution ─────────────────────────────────────────────────────────
@@ -127,6 +160,11 @@ export interface SelectionScope {
 export interface ToolResult {
   result: string;
   isError: boolean;
+  /**
+   * Images for the model. They are kept only in the agent history; the
+   * chat view gets the text with a marker instead (`AgentLoop`).
+   */
+  images?: ImageAttachment[];
 }
 
 // ─── Agent Loop Callbacks ───────────────────────────────────────────────────

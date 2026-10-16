@@ -1,12 +1,14 @@
 import { type ModelOption, cachedCatalog, catalogIdentity, catalogModel, resolveThinkingLevel } from "./model-catalog";
 import { requestUrl } from "obsidian";
 import { ProviderError, retryAfterMs } from "./errors";
+import { withoutOldToolImages } from "../agent/history";
 import type {
   ChatSettings,
   UnifiedMessage,
   UnifiedToolDef,
   UnifiedResponse,
   ContentBlock,
+  ImageAttachment,
 } from "../types";
 
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
@@ -55,7 +57,7 @@ export async function sendAnthropicMessage(
         cache_control: { type: "ephemeral" },
       },
     ],
-    messages: messages.map(msg => toAnthropicMessage(msg, model, identity)),
+    messages: withoutOldToolImages(messages).map(msg => toAnthropicMessage(msg, model, identity)),
   };
 
   // The thinking mode the model catalog reports (`/v1/models` capabilities);
@@ -231,10 +233,13 @@ function toAnthropicMessage(msg: UnifiedMessage, model: string, identity: string
   // Content blocks (tool_use responses from assistant, tool_result from user)
   const blocks = msg.content.map((block) => {
     if (block.type === "tool_result") {
+      // Images from view_image/view_canvas go inside the tool_result.
       return {
         type: "tool_result",
         tool_use_id: block.tool_use_id,
-        content: block.content,
+        content: block.images?.length
+          ? [{ type: "text", text: block.content || "(image)" }, ...block.images.map(anthropicImage)]
+          : block.content,
         is_error: block.is_error || false,
       };
     }
@@ -247,19 +252,19 @@ function toAnthropicMessage(msg: UnifiedMessage, model: string, identity: string
       };
     }
     if (block.type === "image" && block.image) {
-      return {
-        type: "image",
-        source: {
-          type: "base64",
-          media_type: block.image.mediaType,
-          data: block.image.data,
-        },
-      };
+      return anthropicImage(block.image);
     }
     return { type: "text", text: block.text };
   }).filter((b) => !(b.type === "text" && !b.text));
 
   return { role: msg.role, content: blocks };
+}
+
+function anthropicImage(image: ImageAttachment): Record<string, unknown> {
+  return {
+    type: "image",
+    source: { type: "base64", media_type: image.mediaType, data: image.data },
+  };
 }
 
 /**

@@ -6,6 +6,7 @@ import type {
   AgentCallbacks,
   SelectionScope,
   ImageAttachment,
+  ToolResult,
 } from "../types";
 import { sendMessage } from "../api/client";
 import { clearOpenAIState } from "../api/openai";
@@ -14,7 +15,8 @@ import { TOOL_DEFINITIONS } from "../tools/registry";
 import { executeTool } from "../tools/executor";
 import { buildContext } from "./context";
 import { buildSystemPrompt, buildContextMessage } from "./system-prompt";
-import { trimHistory } from "./history";
+import { trimHistory, cutBeforeTurn, editableTurn, newTurnId, withoutOldToolImages } from "./history";
+import { debugLog } from "../debug";
 
 /**
  * The API history: saving keeps the last 80 messages. Before a turn, a
@@ -26,22 +28,18 @@ import { trimHistory } from "./history";
 const MAX_CONVERSATION_LENGTH = 80;
 const KEEP_RECENT = 60;
 
-// Debug logging: writes transcript to the vault's plugin config folder
-const DEBUG = false;
-
-function debugLog(app: App, label: string, data: unknown): void {
-  if (!DEBUG) return;
-  try {
-    const timestamp = new Date().toISOString();
-    const entry = `\n--- ${label} [${timestamp}] ---\n${JSON.stringify(data, null, 2)}\n`;
-    // Use the adapter to write into the current vault config folder.
-    void app.vault.adapter.append(
-      `${app.vault.configDir}/plugins/chatting-with-ai/debug.log`,
-      entry
-    );
-  } catch {
-    // Debug logging should never break the app
-  }
+/**
+ * What the chat view shows and saves for a tool result: the text and a
+ * marker, never the image data, which lives only in the agent history
+ * (otherwise chat-state.json would hold it twice).
+ */
+function displayResult(result: ToolResult): ToolResult {
+  const count = result.images?.length ?? 0;
+  if (!count) return result;
+  return {
+    result: `${result.result}\n\n[${count === 1 ? "1 image" : `${count} images`} sent to the model]`,
+    isError: result.isError,
+  };
 }
 
 /**
@@ -76,6 +74,21 @@ export class AgentLoop {
     clearChatGPTOAuthState();
   }
 
+  /**
+   * Stop a running turn and cut the history to just before the turn
+   * `turnId` (editing a message, regenerating). The cut history is
+   * a new array, so OpenAI replays it in full instead of chaining.
+   */
+  cutBeforeTurn(turnId: string): void {
+    this.abort();
+    this.messages = cutBeforeTurn(this.messages, turnId);
+  }
+
+  /** Turn `turnId` can be edited or answered again (the API history still holds it). */
+  canEditTurn(turnId: string): boolean {
+    return editableTurn(this.messages, turnId);
+  }
+
   /** Export API messages for persistence */
   exportMessages(limit = MAX_CONVERSATION_LENGTH): UnifiedMessage[] {
     return trimHistory(this.messages, limit);
@@ -84,6 +97,7 @@ export class AgentLoop {
   /** Restore API messages from persistence, as many as saving keeps */
   importMessages(messages: UnifiedMessage[]): void {
     this.messages = trimHistory(messages, MAX_CONVERSATION_LENGTH);
+    this.pruneToolImages();
     clearOpenAIState();
     clearChatGPTOAuthState();
   }
@@ -145,6 +159,10 @@ export class AgentLoop {
             parts.push(block.content || "(empty)");
             parts.push("```");
             parts.push(``);
+            for (const image of block.images ?? []) {
+              parts.push(`[Image: ${image.fileName}]`);
+              parts.push(``);
+            }
           }
         }
       }
@@ -153,12 +171,13 @@ export class AgentLoop {
     return parts.join("\n");
   }
 
-  /** Run one user turn through the agentic loop */
+  /** Run one user turn through the agentic loop; `turnId` marks where it starts. */
   async run(
     userMessage: string,
     callbacks: AgentCallbacks,
     selection?: SelectionScope | null,
-    images: ImageAttachment[] = []
+    images: ImageAttachment[] = [],
+    turnId: string = newTurnId()
   ): Promise<void> {
     const version = ++this.runVersion;
     const isStopped = () => version !== this.runVersion;
@@ -195,7 +214,7 @@ export class AgentLoop {
           { type: "text", text: fullMessage },
         ]
       : fullMessage;
-    this.messages.push({ role: "user", content });
+    this.messages.push({ role: "user", content, turnId });
 
     // Prune if conversation is too long
     this.pruneHistory();
@@ -205,6 +224,10 @@ export class AgentLoop {
 
     debugLog(this.app, "USER_MESSAGE", {
       userMessage,
+      // As the model gets it: the context lines first.
+      sent: fullMessage,
+      model: turnSettings.model,
+      provider: turnSettings.provider,
       hasSelection: !!selection,
       imageCount: images.length,
       imageNames: images.map((image) => image.fileName),
@@ -235,7 +258,14 @@ export class AgentLoop {
         return;
       }
 
-      debugLog(this.app, "API_RESPONSE", { stopReason: response.stopReason, contentTypes: response.content.map(b => b.type), usage: response.usage });
+      debugLog(this.app, "API_RESPONSE", {
+        stopReason: response.stopReason, usage: response.usage,
+        // The answer as received: text, and tool calls with their parameters.
+        content: response.content.map((block) =>
+          block.type === "text" ? { type: "text", text: block.text }
+          : block.type === "tool_use" ? { type: "tool_use", name: block.name, input: block.input }
+          : { type: block.type }),
+      });
 
       if (isStopped()) return;
 
@@ -283,7 +313,7 @@ export class AgentLoop {
       // Execute tool calls and collect results
       // Install cancellation results immediately: Stop may allow another user
       // turn or persistence while a vault operation is still in flight.
-      const resultBlocks: ContentBlock[] = toolCalls.map(tc => ({
+      let resultBlocks: ContentBlock[] = toolCalls.map(tc => ({
         type: "tool_result", tool_use_id: tc.id,
         content: "Tool execution cancelled before completion.", is_error: true,
       }));
@@ -301,6 +331,7 @@ export class AgentLoop {
           callbacks.onAskUser,
           scope
         );
+        debugLog(this.app, "TOOL_CALL", { name: tc.name, input: tc.input, result: result.result, isError: result.isError });
 
         if (isStopped()) return;
         resultBlocks[index] = {
@@ -308,8 +339,13 @@ export class AgentLoop {
           tool_use_id: tc.id,
           content: result.result,
           is_error: result.isError,
+          ...(result.images?.length ? { images: result.images } : {}),
         };
-        callbacks.onToolResult(tc.name!, result);
+        this.pruneToolImages();
+        // Pruning can copy this result message. Later calls in the same batch
+        // must update its current array, not the superseded result array.
+        resultBlocks = this.messages[this.messages.length - 1].content as ContentBlock[];
+        callbacks.onToolResult(tc.name!, displayResult(result));
       }
 
       if (isStopped()) return;
@@ -321,10 +357,17 @@ export class AgentLoop {
     );
   }
 
+  /** Bound stored tool pixels as well as outgoing requests; user attachments stay. */
+  private pruneToolImages(): void {
+    const pruned = withoutOldToolImages(this.messages);
+    if (pruned.some((message, index) => message !== this.messages[index])) this.messages = pruned;
+  }
+
   /** Drop oldest messages when conversation gets too long, keeping recent context */
   private pruneHistory(): void {
     if (this.messages.length > MAX_CONVERSATION_LENGTH) {
       this.messages = trimHistory(this.messages, KEEP_RECENT);
     }
+    this.pruneToolImages();
   }
 }
