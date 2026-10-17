@@ -201,6 +201,7 @@ function fakeChat() {
     updateToolResult(id) { const msg = chat.shown.find(m => m.id === id); if (msg) msg.type = 'tool-result'; },
     addError(value) { chat.shown.push({ id: nextId++, type: 'error', text: value }); },
     addChanges(turnId, files, state) { chat.shown.push({ id: nextId++, type: 'changes', turnId, files, changesState: state }); },
+    setChangesKept(turnId) { const row = chat.shown.find(m => (m.type === 'changes' || m.type === 'steps') && m.turnId === turnId); if (row) row.changesState = 'kept'; },
     setChangesUndone(turnId) { const row = chat.shown.find(m => m.type === 'changes' && m.turnId === turnId); if (row) row.changesState = 'undone'; },
     showThinking() {}, hideThinking() {}, cancelAskUser() {},
     setInputEnabled() {}, setBusy() {}, folded: [], foldTurn(turnId) { chat.folded.push(turnId); }, clearMessages() { chat.shown = []; }, focus() {}, setModel() {}, setTitle() {},
@@ -440,4 +441,67 @@ test('A finished turn folds its steps: when it ends, and every finished turn aga
   chat.folded = [];
   view.renderHistory();
   assert.deepEqual(chat.folded, [turnId]);
+});
+
+test('Repeated adjacent edits coalesce to the first snapshot and final text within the budget', async () => {
+  const original = 'a'.repeat(2 * 1024 * 1024);
+  const { app, files } = fakeVault({ 'Large.md': original });
+  const changes = new api.ChangeLog();
+  let before = original;
+  for (let i = 0; i < 30; i++) {
+    const after = original + String(i);
+    changes.edited('Large.md', before, after);
+    before = after;
+  }
+  files.set('Large.md', before);
+  assert.equal(changes.canUndo(), true);
+  assert.ok(changes.snapshotBytes < 9 * 1024 * 1024);
+  assert.deepEqual(await changes.undo(app), []);
+  assert.equal(files.get('Large.md'), original);
+  assert.equal(changes.snapshotBytes, 0);
+});
+
+test('An answer exceeding its aggregate snapshot budget keeps all files without offering partial undo', async () => {
+  const changes = new api.ChangeLog();
+  const big = 'a'.repeat(5 * 1024 * 1024);
+  changes.edited('A.md', big, big + 'x');
+  changes.edited('B.md', big, big + 'y');
+  assert.equal(changes.canUndo(), false);
+  assert.equal(changes.snapshotBytes, 0);
+  assert.equal(changes.steps.length, 0);
+  changes.renamed('A.md', 'Renamed.md');
+  changes.created('C.md', 'Created');
+  assert.deepEqual(changes.files(), ['Renamed.md', 'B.md', 'C.md']);
+  const { app, files } = fakeVault({ 'Renamed.md': 'Kept', 'B.md': 'Kept', 'C.md': 'Created' });
+  assert.match((await changes.undo(app))[0], /expired/);
+  assert.equal(files.get('Renamed.md'), 'Kept');
+  assert.equal(changes.isEmpty(), false);
+});
+
+test('Retained answers share a global budget and evict whole oldest logs', () => {
+  const big = 'a'.repeat(6 * 1024 * 1024);
+  const logs = Array.from({ length: 3 }, () => new api.ChangeLog());
+  for (const [i, log] of logs.entries()) log.edited(`${i}.md`, big, big + i);
+  assert.equal(logs[0].canUndo(), false);
+  assert.equal(logs[1].canUndo(), true);
+  assert.equal(logs[2].canUndo(), true);
+  assert.ok(logs.reduce((sum, log) => sum + log.snapshotBytes, 0) <= 64 * 1024 * 1024);
+});
+
+test('An oversized edit succeeds but its UI row and tool result explicitly report unavailable undo', async () => {
+  const { plugin, view, chat, files } = await chatSetup();
+  files.set('Plan.md', 'x'.repeat(9 * 1024 * 1024));
+  const requests = transport((body, index) => index === 0
+    ? response('anthropic', [call('edit', 'edit_document', { path: 'Plan.md', operation: 'insert', position: 'end', content: 'done' })], 'tool_use')
+    : response('anthropic', [text('Done')], 'end_turn', index));
+  await view.handleUserMessage('Append done', null);
+  const row = changesRow(plugin);
+  assert.equal(plugin.changeLogs.get(row).canUndo(), false);
+  assert.equal(chat.shown.find(item => item.type === 'changes').changesState, 'kept');
+  assert.match(JSON.stringify(requests[1]), /undo is unavailable for the entire answer/);
+  assert.ok(globalThis.__notices.some(value => /memory budget/.test(value)));
+  const current = files.get('Plan.md');
+  await view.undoChanges(row.turnId);
+  assert.equal(files.get('Plan.md'), current);
+  assert.equal(row.undone, undefined);
 });

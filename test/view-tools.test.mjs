@@ -545,3 +545,22 @@ test('view_image refuses oversized source bytes before reading and never decodes
   try{assert.equal((await run(normal.app,'view_image',{path:'Pics/wide.gif'})).isError,false);assert.equal(calls,0);}
   finally{globalThis.createImageBitmap=original;}
 });
+
+test('view_canvas reports actual embedded image reads and delivers their folder rules with pixels', async () => {
+  const { app, text: notes } = imageVault();
+  notes.set('Pics/AGENTS.md', 'Use private pictures only for this request.');
+  const result = await run(app, 'view_canvas', { path: 'Board.canvas' });
+  assert.ok(result.instructionPaths.includes('Pics/cat.png'));
+  assert.ok(!result.instructionPaths.includes('Notes/Beta.md'));
+  const loop = new api.AgentLoop(app, settings('anthropic'));
+  const requests = transport((body, index) => index === 0
+    ? response('anthropic', [call('canvas', 'view_canvas', { path: 'Board.canvas' })], 'tool_use')
+    : response('anthropic', [text('Done')], 'end_turn', index));
+  await loop.run('Describe the board', callbacks());
+  const sent = JSON.stringify(requests[1]);
+  assert.match(sent, /Use private pictures only for this request/);
+  assert.match(sent, /base64/);
+  assert.doesNotMatch(sent, /instructionPaths|instructionSources/);
+  const focused = await run(app, 'view_canvas', { path: 'Board.canvas', focus: 'c' });
+  assert.deepEqual(focused.instructionPaths, ['Board.canvas']);
+});

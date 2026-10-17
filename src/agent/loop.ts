@@ -291,6 +291,7 @@ export class AgentLoop {
     });
 
     const maxIterations = turnSettings.maxIterations || 20;
+    let undoBudgetReported = false;
 
     for (let i = 0; i < maxIterations; i++) {
       if (isStopped()) return;
@@ -420,6 +421,10 @@ export class AgentLoop {
           const discovered = await folderInstructionContext(this.app, result.instructionPaths, new Set([...knownRules, ...instructionSources]));
           folderRules = [folderRules, discovered.text].filter(Boolean).join("\n\n");
           instructionSources.push(...discovered.sources);
+        }
+        if (callbacks.changes && !callbacks.changes.canUndo() && !undoBudgetReported) {
+          result.result += "\nUndo snapshots exceeded their memory budget. This answer's changes are kept; undo is unavailable for the entire answer.";
+          undoBudgetReported = true;
         }
         debugLog(this.app, "TOOL_CALL", { name: tc.name, input: tc.input, result: result.result, isError: result.isError });
         if (isStopped()) return;

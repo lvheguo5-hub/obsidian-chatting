@@ -107,3 +107,14 @@ Head `8114a20ecf1e2adab5a7c300c199d2ac7fdd6054` passed CI and its exact-head Com
 Codex found that recognizing instruction headers in ordinary user/linked/tool text allowed a forged marker to suppress real folder rules. Delivery is now recorded only in internal `instructionSources` metadata created by the folder instruction loader, independently of all content text. Initial linked/skill context and tool results retain this provenance through save/restore and pruning; old histories without provenance safely reload the real rules. Provider adapters transmit the rules' text, never the bookkeeping metadata. Regression tests cover typed text, text blocks, tool results, linked notes, spoofed markers inside actual instruction files, save/restore, and re-delivery after history pruning.
 
 All 449 tests, TypeScript, Svelte (zero errors/warnings) and production build pass. Fresh review, CI and an exact-head Preview are required for the repair commit.
+
+
+## External review, round 7
+
+Head `e4d2ee7a0851a99630a72ebc20622af018a80d03` passed CI and exact-head Community Preview (Completed, no Error/Fail, dependencies Pass). Codex found three additional boundaries:
+
+- Edit/regenerate now retains the original API/visible histories until replacement preflight succeeds. Rejected linked context or final JSON budget restores all original turns, their object identity (including undo logs), title and pending notes, plus the unsent replacement draft. The premature cut is no longer saved. Stop/switch during asynchronous edited-context loading also restores the source conversation before leaving.
+- view_canvas reports every embedded image file it actually reads in instructionPaths. The agent delivers those folder rules along with the picture; offscreen/focused-out nodes and nonimage cards do not imply reads.
+- Undo retention coalesces adjacent edits to the same file with matching boundaries. It is bounded to 32 MiB per answer and 64 MiB across live logs, counting UTF-16 text and binary snapshots conservatively. Exceeding a budget expires a whole answer's undo, retaining only its changed-file names and showing the kept state; partial undo is never offered. New oversized answers report the limitation in a notice and tool result. Older evicted rows lose Undo, including on conversation restore. Weak references do not extend conversation lifetime; successful undo releases the consumed budget.
+
+All 458 tests, TypeScript, Svelte (zero errors/warnings) and production build pass. Regression coverage includes rejected edit/regenerate persistence, later-answer preservation, cancellation during context loading, a smaller retry, actual Canvas pixel/rule delivery, repeated large edits, whole-log expiration, global retention and UI/undo refusal after expiration. These boundary checks are automated; no additional phone acceptance is claimed. Fresh external review and exact-head Preview are required after push.

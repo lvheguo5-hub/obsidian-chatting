@@ -394,6 +394,11 @@
     if (row) row.changesState = "undone";
   }
 
+  export function setChangesKept(turnId: string): void {
+    const row = messages.find((m) => (m.type === "changes" || m.type === "steps") && m.turnId === turnId);
+    if (row) row.changesState = "kept";
+  }
+
   /** A finished turn's work folds into one row right above its answer (`foldPlan`). */
   export function foldTurn(turnId: string): void {
     const plan = foldPlan(messages, turnId);

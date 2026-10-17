@@ -11,6 +11,15 @@ type Step =
   | { kind: "deleted"; folders: string[]; files: { path: string; data: ArrayBuffer }[] }
   | { kind: "folders"; folders: string[] };
 
+/** Conservative UTF-16/binary retention bounds, shared by all live answers. */
+const MAX_LOG_BYTES = 32 * 1024 * 1024;
+const MAX_TOTAL_BYTES = 64 * 1024 * 1024;
+let retainedLogs: WeakRef<ChangeLog>[] = [];
+const stepBytes = (step: Step): number => step.kind === "edited" ? 2 * (step.before.length + step.after.length + step.path.length)
+  : step.kind === "created" ? 2 * (step.after.length + step.path.length)
+  : step.kind === "deleted" ? step.files.reduce((sum, file) => sum + file.data.byteLength + 2 * file.path.length, 0) + 2 * step.folders.join("").length
+  : step.kind === "renamed" ? 2 * (step.from.length + step.to.length) : 2 * step.folders.join("").length;
+
 /** What a file is expected to be after the turn: its text, there (not text), or gone. */
 type Expected = { text: string } | "exists" | "absent";
 
@@ -22,23 +31,71 @@ type Expected = { text: string } | "exists" | "absent";
  */
 export class ChangeLog {
   private steps: Step[] = [];
+  private keptFiles: string[] | null = null;
+  private snapshotBytes = 0;
+
+  /** A budget-evicted answer keeps its changed-file row, never a partial undo. */
+  canUndo(): boolean { return this.keptFiles === null; }
+
+  private evict(): void {
+    this.keptFiles = this.files();
+    this.steps = [];
+    this.snapshotBytes = 0;
+  }
+
+  private record(step: Step): void {
+    if (this.keptFiles !== null) {
+      const names = this.keptFiles;
+      if (step.kind === "renamed") {
+        const at = names.indexOf(step.from);
+        if (at >= 0) names[at] = step.to;
+        else if (!names.includes(step.to)) names.push(step.to);
+      } else {
+        const paths = step.kind === "deleted" ? step.files.map(file => file.path)
+          : step.kind === "folders" ? [] : [step.path];
+        for (const path of paths) if (!names.includes(path)) names.push(path);
+      }
+      return;
+    }
+    const last = this.steps.at(-1);
+    // Only adjacent edits with matching boundaries can be coalesced safely.
+    if (step.kind === "edited" && (last?.kind === "edited" || last?.kind === "created") && last.path === step.path && last.after === step.before) {
+      this.snapshotBytes -= stepBytes(last);
+      last.after = step.after;
+      this.snapshotBytes += stepBytes(last);
+    } else {
+      this.steps.push(step);
+      this.snapshotBytes += stepBytes(step);
+    }
+    if (this.snapshotBytes > MAX_LOG_BYTES) this.evict();
+    if (!retainedLogs.some(ref => ref.deref() === this)) retainedLogs.push(new WeakRef(this));
+    const live = retainedLogs.flatMap(ref => { const log = ref.deref(); return log && log.canUndo() && !log.isEmpty() ? [log] : []; });
+    let total = live.reduce((sum, log) => sum + log.snapshotBytes, 0);
+    for (const log of live) {
+      if (total <= MAX_TOTAL_BYTES) break;
+      total -= log.snapshotBytes;
+      log.evict();
+    }
+    // Weak references do not extend a conversation's undo lifetime.
+    retainedLogs = live.filter(log => log.canUndo()).map(log => new WeakRef(log));
+  }
 
   /** The tools record after a successful change. */
   edited(path: string, before: string, after: string): void {
-    if (before !== after) this.steps.push({ kind: "edited", path, before, after });
+    if (before !== after) this.record({ kind: "edited", path, before, after });
   }
 
   created(path: string, after: string): void {
-    this.steps.push({ kind: "created", path, after });
+    this.record({ kind: "created", path, after });
   }
 
   /** Folders a tool created for a file, outermost first. */
   foldersCreated(folders: string[]): void {
-    if (folders.length) this.steps.push({ kind: "folders", folders });
+    if (folders.length) this.record({ kind: "folders", folders });
   }
 
   renamed(from: string, to: string): void {
-    this.steps.push({ kind: "renamed", from, to });
+    this.record({ kind: "renamed", from, to });
   }
 
   /** Before deleting `target`: keeps its files (a folder's too) to create them again. */
@@ -60,15 +117,16 @@ export class ChangeLog {
       }
     };
     await visit(target);
-    return () => this.steps.push({ kind: "deleted", folders, files });
+    return () => this.record({ kind: "deleted", folders, files });
   }
 
   isEmpty(): boolean {
-    return this.steps.length === 0;
+    return this.steps.length === 0 && !this.keptFiles?.length;
   }
 
   /** The files the turn changed, named as it left them (deleted ones as they were). */
   files(): string[] {
+    if (this.keptFiles !== null) return [...this.keptFiles];
     const names: string[] = [];
     const add = (path: string) => {
       if (!names.includes(path)) names.push(path);
@@ -117,12 +175,14 @@ export class ChangeLog {
 
   /** Takes the changes back, last first. Returns what couldn't be undone. */
   async undo(app: App): Promise<string[]> {
+    if (!this.canUndo()) return ["Undo snapshots expired because their memory budget was exceeded; no files were changed."];
     const failed: string[] = [];
     while (this.steps.length) {
       const step = this.steps[this.steps.length - 1];
       try {
         await undoStep(app, step);
         this.steps.pop();
+        this.snapshotBytes -= stepBytes(step);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         failed.push(`${describe(step)}: ${msg}`);

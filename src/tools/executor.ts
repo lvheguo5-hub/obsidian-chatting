@@ -630,6 +630,7 @@ async function viewCanvas(
     return { result: `No node or group with id "${wanted}" in ${file.path}. Use an ID from read_canvas or a tag from an earlier view_canvas legend.`, isError: true };
   }
   const omitted = new Set<string>();
+  const instructionPaths = new Set<string>([file.path]);
   const rendered = await renderCanvas(canvas, {
     focus: focus || undefined,
     createSurface: createCanvasElement,
@@ -638,6 +639,7 @@ async function viewCanvas(
       const mediaType = image ? imageMediaType(image.path) : undefined;
       if (!image || !mediaType) return null;
       if (image.stat?.size > PREVIEW_SOURCE_BYTES) { omitted.add(path); return null; }
+      instructionPaths.add(image.path);
       const bytes = await app.vault.readBinary(image);
       if (!canvasImageWithinBudget(bytes)) { omitted.add(path); return null; }
       return decodeImage(bytes, mediaType);
@@ -649,6 +651,7 @@ async function viewCanvas(
     result: `Picture of ${file.path}: ${rendered.legend}${omitted.size
       ? `\nImage preview omitted (unknown dimensions, over 4 MiPixels, over 8192 px on one side, or over 10 MiB): ${[...omitted].join(", ")}. These nodes show file cards instead.` : ""}`,
     isError: false,
+    instructionPaths: [...instructionPaths],
     images: [{
       id: `canvas-${Date.now()}`,
       fileName: `${name}.${png.mediaType === "image/png" ? "png" : "jpg"}`,

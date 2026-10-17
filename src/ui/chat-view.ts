@@ -96,9 +96,10 @@ interface ChatContainerApi extends Record<string, unknown> {
   /** Which turns can be edited or answered again. */
   setEditable?(check: (turnId: string) => boolean): void;
   setFollowEdits(on: boolean): void;
-  /** The row of files a turn changed; "kept": its undo was lost when Obsidian closed. */
+  /** "kept": undo snapshots expired after closing Obsidian or reaching the memory budget. */
   addChanges(turnId: string, files: string[], state: ChangesState): void;
   setChangesUndone(turnId: string): void;
+  setChangesKept?(turnId: string): void;
   /** A finished turn: its steps fold into one row above the answer. */
   foldTurn(turnId: string): void;
 }
@@ -253,7 +254,7 @@ export class ObsidianChatView extends ItemView {
           break;
         case "changes":
           if (msg.turnId) {
-            const state = msg.undone ? "undone" : this.plugin.changeLogs.has(msg) ? "undoable" : "kept";
+            const state = msg.undone ? "undone" : this.plugin.changeLogs.get(msg)?.canUndo() ? "undoable" : "kept";
             chat.addChanges(msg.turnId, msg.files ?? [], state);
           }
           break;
@@ -371,12 +372,13 @@ export class ObsidianChatView extends ItemView {
 
   /**
    * Edit and continue: stop a running turn, cut both histories to
-   * just before the turn `turnId`, save, and run `text` as a new turn with
+   * just before the turn `turnId`, and run `text` as a new turn with
    * that turn's images, files and selection scope. Vault changes stay. Resolves
-   * when the new turn has ended.
+   * when the new turn has ended. Rejected preflight restores the original histories.
    */
   async editMessage(turnId: string, text: string): Promise<void> {
-    if (this.undoing) return;
+    if (this.undoing || !this.chatContainer) return;
+    if (this.running) this.stopTurn();
     const history = this.plugin.chatHistory;
     const index = history.findIndex((entry) => entry.type === "user" && entry.turnId === turnId);
     // A turn the API history no longer holds can't be edited: cutting there
@@ -387,14 +389,36 @@ export class ObsidianChatView extends ItemView {
     const images = (history[index].images ?? []).filter((image) => image.data);
     const files = (history[index].attachedFiles ?? []).filter((file) => file.data || file.text);
     if (!text.trim() && images.length === 0 && files.length === 0) return;
-    if (this.running) this.stopTurn();
+    const originalMessages = this.plugin.agent.exportMessages(Number.MAX_SAFE_INTEGER);
+    const conversation = this.plugin.activeConversation;
+    const originalTitle = conversation.title;
+    const originalUpdatedAt = conversation.updatedAt;
+    const originalNotes = conversation.notes ?? [];
     this.plugin.agent.cutBeforeTurn(turnId);
     this.plugin.chatHistory = history.slice(0, index);
+    const replacementHistory = this.plugin.chatHistory;
+    const rollback = () => {
+      if (this.rollbackResend !== rollback) return;
+      this.rollbackResend = undefined;
+      this.plugin.agent.importMessages(originalMessages);
+      this.plugin.chatHistory = history;
+      conversation.title = originalTitle;
+      conversation.updatedAt = originalUpdatedAt;
+      if (originalNotes.length) conversation.notes = [...new Set([...originalNotes, ...conversation.notes ?? []])];
+      // Preserve the rejection explanation alongside the original conversation.
+      history.push(...replacementHistory.slice(index).filter(row => row.type === "error"));
+      this.renderHistory();
+      this.chatContainer?.setTitle(conversation.title);
+      void this.plugin.saveChatHistory();
+    };
+    this.rollbackResend = rollback;
     this.chatContainer?.cutMessages(turnId);
-    // Saved at once: the cut holds even if the new turn never ends.
-    void this.plugin.saveChatHistory();
     await this.handleUserMessage(text, selection, images, files);
+    if (this.rollbackResend === rollback) this.rollbackResend = undefined;
   }
+
+  /** Until resend preflight succeeds, Stop/switch or rejection can restore the original turn. */
+  private rollbackResend?: () => void;
 
   /** Regenerate the last answer: run the last user turn again, unchanged. */
   async regenerate(): Promise<void> {
@@ -493,6 +517,7 @@ export class ObsidianChatView extends ItemView {
           chat.showThinking();
         },
         onToolCall: (name, input) => {
+          this.rollbackResend = undefined;
           chat.hideThinking();
           if (name === "ask_user") return;
           // A tool step on screen shows that the turn did something.
@@ -507,12 +532,14 @@ export class ObsidianChatView extends ItemView {
           if (focus && !result.isError && this.plugin.settings.followEdits) this.follow(focus);
         },
         onResponse: (text) => {
+          this.rollbackResend = undefined;
           this.answerShown = true;
           chat.hideThinking();
           chat.addAssistantMessage(text);
           history.push({ type: "assistant", text });
         },
         onAskUser: async (question) => {
+          this.rollbackResend = undefined;
           // The question is the answer so far.
           this.answerShown = true;
           chat.hideThinking();
@@ -535,11 +562,13 @@ export class ObsidianChatView extends ItemView {
       }, selection, images, turnId, mentioned, notes, files);
     } catch (e) {
       if (!isCurrent()) return;
+      if (this.rollbackResend) started = false;
       const msg = e instanceof Error ? e.message : String(e);
       chat.addError(`Unexpected error: ${msg}`);
       history.push({ type: "error", text: `Unexpected error: ${msg}` });
     } finally {
-      if (!started && notes.length) conversation.notes = [...notes, ...conversation.notes ?? []];
+      if (!started && notes.length) conversation.notes = [...new Set([...notes, ...conversation.notes ?? []])];
+      if (!started && isCurrent()) this.rollbackResend?.();
       if (!started && isCurrent()) chat.restoreDraft?.(text, selection, images, files);
       releaseScreen();
       if (!changes.isEmpty()) this.addChanges(history, turnId, changes);
@@ -549,6 +578,13 @@ export class ObsidianChatView extends ItemView {
         // The history's limit may have cut older turns off.
         this.updateEditable();
         this.running = false;
+        if (!changes.isEmpty()) {
+          for (const row of this.plugin.chatHistory) {
+            if (row.type === "changes" && row.turnId && !row.undone && this.plugin.changeLogs.get(row)?.canUndo() === false) {
+              chat.setChangesKept?.(row.turnId);
+            }
+          }
+        }
         chat.setInputEnabled(true);
         chat.setBusy(false);
         chat.focus();
@@ -571,6 +607,7 @@ export class ObsidianChatView extends ItemView {
   private addChanges(history: ChatHistoryEntry[], turnId: string, changes: ChangeLog): void {
     const entry: ChatHistoryEntry = { type: "changes", turnId, files: changes.files() };
     this.plugin.changeLogs.set(entry, changes);
+    if (!changes.canUndo()) new Notice("Undo snapshots exceeded their memory budget. This answer's files are kept; undo is unavailable.");
     const start = history.findIndex((item) => item.type === "user" && item.turnId === turnId);
     const later = history.findIndex((item, i) => i > start && item.type === "user" && !!item.turnId && item.turnId !== turnId);
     const end = later === -1 ? history.length : later;
@@ -583,7 +620,7 @@ export class ObsidianChatView extends ItemView {
     }
     history.splice(at, 0, entry);
     // The chat puts the row at the same place (ChatContainer.addChanges).
-    if (history === this.plugin.chatHistory) this.chatContainer?.addChanges(turnId, entry.files ?? [], "undoable");
+    if (history === this.plugin.chatHistory) this.chatContainer?.addChanges(turnId, entry.files ?? [], changes.canUndo() ? "undoable" : "kept");
   }
 
   /**
@@ -600,6 +637,11 @@ export class ObsidianChatView extends ItemView {
     const entry = conversation.chatHistory.find((item) => item.type === "changes" && item.turnId === turnId);
     const log = entry && this.plugin.changeLogs.get(entry);
     if (!entry || !log || entry.undone) return;
+    if (!log.canUndo()) {
+      this.renderHistory();
+      new Notice("Undo snapshots expired because their memory budget was exceeded. The files are kept.");
+      return;
+    }
     const app = this.plugin.app;
     this.undoing = true;
     try {
@@ -639,6 +681,7 @@ export class ObsidianChatView extends ItemView {
   private stopTurn(): void {
     this.runVersion++;
     this.plugin.agent.abort();
+    this.rollbackResend?.();
     // A stopped request may still be waiting for its response.
     this.releaseScreen();
     this.running = false;
@@ -666,6 +709,7 @@ export class ObsidianChatView extends ItemView {
     if (this.undoing) return;
     this.runVersion++;
     this.plugin.agent.clear();
+    this.rollbackResend = undefined;
     this.releaseScreen();
     this.plugin.chatHistory = [];
     delete this.plugin.activeConversation.notes;
