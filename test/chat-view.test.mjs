@@ -348,3 +348,49 @@ for (const provider of ['anthropic', 'openai', 'chatgpt-oauth']) {
     assert.equal(plugin.activeConversation.notes, undefined);
   });
 }
+
+
+for (const action of ['Stop', 'Clear', 'Stop and new send']) {
+  test(`${action} during linked preflight handles the draft immediately and ignores stale completion`, async () => {
+    const { app, plugin, view, chat } = await chatSetup('anthropic');
+    let release;
+    let reading = false;
+    const file = { path: 'Hold.md', extension: 'md' };
+    app.metadataCache = { getFirstLinkpathDest: () => file };
+    const originalRead = app.vault.cachedRead;
+    app.vault.cachedRead = async item => {
+      if (item.path !== file.path) return originalRead(item);
+      reading = true;
+      return new Promise(resolve => { release = resolve; });
+    };
+    const requests = answering('anthropic');
+    const selection = null;
+    const images = [{ ...image }];
+    const files = [{ id: 'text', fileName: 'File.txt', mediaType: 'text/plain', sizeBytes: 4, data: '', text: 'Data' }];
+    plugin.activeConversation.notes = ['Pending undo note'];
+    const pending = view.handleUserMessage('Read [[Hold]]', selection, images, files);
+    await until(() => reading);
+    if (action === 'Clear') {
+      view.clearConversation();
+      assert.equal(chat.draft, undefined);
+    } else {
+      view.handleStop();
+      assert.deepEqual(chat.draft, { text: 'Read [[Hold]]', selection, images, files });
+      assert.deepEqual(plugin.activeConversation.notes, ['Pending undo note']);
+      if (action === 'Stop and new send') {
+        chat.draft = { text: 'New draft' };
+        await view.handleUserMessage('Next question', null);
+        assert.match(JSON.stringify(requests[0]), /Pending undo note/);
+      }
+    }
+    release('Loaded later');
+    await pending;
+    assert.equal(requests.length, action === 'Stop and new send' ? 1 : 0);
+    if (action === 'Stop and new send') {
+      assert.deepEqual(chat.draft, { text: 'New draft' });
+      assert.equal(plugin.activeConversation.notes, undefined, 'late cancellation cannot reintroduce consumed notes');
+    }
+    if (action === 'Clear') assert.equal(plugin.activeConversation.notes, undefined);
+    assert.equal(plugin.chatHistory.some(row => row.type === 'user' && row.text === 'Read [[Hold]]'), false);
+  });
+}

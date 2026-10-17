@@ -20,7 +20,7 @@ export async function getLinks(app: App, file: TFile): Promise<ToolResult> {
   const sections = [
     await linkedMentions(app, file, touched),
     await unlinkedMentions(app, file, touched),
-    outgoingLinks(app, file),
+    outgoingLinks(app, file, touched),
   ];
   return { result: `Links of ${file.path}\n\n${sections.join("\n\n")}`, isError: false, instructionPaths: [...touched] };
 }
@@ -42,7 +42,7 @@ async function linkedMentions(app: App, file: TFile, touched: Set<string>): Prom
         lines.add(link.position.start.line);
       }
     }
-    if (source && lines.size) touched.add(source.path);
+    touched.add(path);
     const text = source && lines.size ? await app.vault.cachedRead(source) : "";
     entries.push(entry(path, `${count} link${count === 1 ? "" : "s"}`, text, [...lines]));
   }
@@ -83,8 +83,9 @@ async function unlinkedMentions(app: App, file: TFile, touched: Set<string>): Pr
   return `Unlinked mentions (${found.length} note${found.length === 1 ? "" : "s"}; to link one, edit it to [[${file.basename}]]):\n${entries.join("\n")}${more(found.length)}`;
 }
 
-function outgoingLinks(app: App, file: TFile): string {
+function outgoingLinks(app: App, file: TFile, touched: Set<string>): string {
   const resolved = Object.keys(app.metadataCache.resolvedLinks[file.path] ?? {}).sort();
+  for (const path of resolved.slice(0, MAX_NOTES)) touched.add(path);
   const unresolved = Object.keys(app.metadataCache.unresolvedLinks[file.path] ?? {}).sort();
   if (resolved.length === 0 && unresolved.length === 0) return "Outgoing links: none.";
   const lines = [

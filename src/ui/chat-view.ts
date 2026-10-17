@@ -432,6 +432,8 @@ export class ObsidianChatView extends ItemView {
 
   /** Until resend preflight succeeds, Stop/switch or rejection can restore the original turn. */
   private rollbackResend?: () => void;
+  /** Restore synchronously on Stop, before an old async preflight can become stale. */
+  private restorePendingDraft?: () => void;
 
   /** Regenerate the last answer: run the last user turn again, unchanged. */
   async regenerate(): Promise<void> {
@@ -487,6 +489,16 @@ export class ObsidianChatView extends ItemView {
     const toolCalls = new Map<string, { id: number; input: Record<string, unknown> }>();
     const changes = new ChangeLog();
     let started = false;
+    let notesRestored = false;
+    const restoreNotes = () => {
+      if (!notesRestored && notes.length) conversation.notes = [...new Set([...notes, ...conversation.notes ?? []])];
+      notesRestored = true;
+    };
+    const restorePendingDraft = () => {
+      restoreNotes();
+      chat.restoreDraft?.(text, selection, images, files);
+    };
+    this.restorePendingDraft = restorePendingDraft;
 
     try {
       // The files the message links to go along as they are now; the chat
@@ -514,6 +526,7 @@ export class ObsidianChatView extends ItemView {
       this.plugin.touchConversation();
       chat.setTitle(conversation.title);
       started = true;
+      this.restorePendingDraft = undefined;
       await this.plugin.agent.run(text, {
         changes,
         onPreflightRejected: (error) => {
@@ -581,7 +594,8 @@ export class ObsidianChatView extends ItemView {
       chat.addError(`Unexpected error: ${msg}`);
       history.push({ type: "error", text: `Unexpected error: ${msg}` });
     } finally {
-      if (!started && notes.length) conversation.notes = [...new Set([...notes, ...conversation.notes ?? []])];
+      if (this.restorePendingDraft === restorePendingDraft) this.restorePendingDraft = undefined;
+      if (!started && isCurrent()) restoreNotes();
       if (!started && isCurrent()) this.rollbackResend?.();
       if (!started && isCurrent()) chat.restoreDraft?.(text, selection, images, files);
       releaseScreen();
@@ -700,9 +714,13 @@ export class ObsidianChatView extends ItemView {
 
   /** Stops the running turn; what it showed so far stays. */
   private stopTurn(): void {
+    const restoreDraft = this.restorePendingDraft;
+    this.restorePendingDraft = undefined;
     this.runVersion++;
     this.plugin.agent.abort();
     this.rollbackResend?.();
+    // Resend rollback renders history, which clears attachment chips. Restore after it.
+    restoreDraft?.();
     // A stopped request may still be waiting for its response.
     this.releaseScreen();
     this.running = false;
@@ -731,6 +749,7 @@ export class ObsidianChatView extends ItemView {
     this.runVersion++;
     this.plugin.agent.clear();
     this.rollbackResend = undefined;
+    this.restorePendingDraft = undefined;
     this.releaseScreen();
     this.plugin.chatHistory = [];
     delete this.plugin.activeConversation.notes;

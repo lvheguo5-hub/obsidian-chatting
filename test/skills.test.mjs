@@ -135,7 +135,7 @@ test('Loaded skills report their file scope for both use_skill and slash context
   const result = requests[1].messages.at(-1).content.find(block => block.type === 'tool_result');
   assert.match(resultText(result), /Keep skill results concise[\s\S]*Meeting notes require actions/);
   const context = await skills.invokedSkillsContext(app, 'Skills', '/meeting-notes');
-  assert.deepEqual(context.instructionPaths, ['Skills/meeting-notes/SKILL.md']);
+  assert.deepEqual(context.instructionPaths, ['Skills/meeting-notes/SKILL.md', 'Skills/meeting-notes/examples/one.md', 'Skills/meeting-notes/template.md']);
   const fresh = new api.AgentLoop(app, { ...settings('anthropic'), skillsFolder: 'Skills' });
   const initial = transport(() => response('anthropic', [text('ok')]));
   await fresh.run('/meeting-notes', callbacks(), null, [], 'slash', context);
@@ -278,3 +278,26 @@ test('Settings before Obsidian 1.13: display() draws the folder row, a row per s
   await settle();
   assert.ok(made.has('Skills/new-skill/SKILL.md'));
 });
+
+
+for (const via of ['tool', 'slash']) {
+  test(`Nested skill resource rules accompany listed paths via ${via}`, async () => {
+    const app = skillsApp();
+    const original = app.vault.getFileByPath;
+    const rule = 'Skills/meeting-notes/examples/AGENTS.md';
+    app.vault.getFileByPath = path => path === rule ? { path } : original(path);
+    const read = app.vault.cachedRead;
+    app.vault.cachedRead = async file => file.path === rule ? 'NESTED-RESOURCE-RULE' : read(file);
+    const loop = new api.AgentLoop(app, { ...settings('anthropic'), skillsFolder: 'Skills' });
+    const context = via === 'slash' ? await skills.invokedSkillsContext(app, 'Skills', '/meeting-notes') : null;
+    const requests = transport((_body, index) => via === 'tool' && index === 0
+      ? response('anthropic', [call('skill', 'use_skill', { name: 'meeting-notes' })], 'tool_use')
+      : response('anthropic', [text('done')], 'end_turn', index));
+    const cb = callbacks();
+    await loop.run(via === 'slash' ? '/meeting-notes' : 'Use the skill', cb, null, [], 'nested', context);
+    assert.deepEqual(cb.errors, []);
+    assert.match(JSON.stringify(requests.at(-1)), /NESTED-RESOURCE-RULE/);
+    assert.match(JSON.stringify(requests.at(-1)), /examples\/one.md/);
+    assert.doesNotMatch(JSON.stringify(requests), /instructionPaths/);
+  });
+}

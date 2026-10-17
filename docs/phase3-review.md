@@ -165,3 +165,14 @@ Head `3572d2f6dbee93ad258661db7fca597adec91d1c` passed CI and its exact-head Com
 - Each visible user turn records its original link-resolution source note. Editing or regenerating reuses that source while reading the linked files' current content, so switching active notes cannot silently change a shortest-form link to another folder's same-named note. The optional source survives version-3 save/reload. Legacy turns without a recorded source consistently resolve from the vault root.
 
 All 482 tests, TypeScript, Svelte (zero errors/warnings), production build and a clean archive npm ci rebuild pass, with all three assets matching. New regressions exercise long reads, nested write deferral/retry, trusted-suffix persistence, and duplicate-basename links during edit, regeneration and regeneration after reload. These are automated engine checks; desktop remains installed at `55f2663` and phone remains the original tested candidate. No newer native/mobile acceptance is claimed. Fresh CI, Codex review and exact-head official Preview remain required after push.
+
+
+## External review, round 12
+
+Head `6ac7fa0c6ce96fd3867a713d4061124343adf4b9` passed CI and exact-head Community Preview (Completed, no Error/Fail, dependencies Pass, two compatibility recommendations). Codex found three additional P2 cases:
+
+- Stop now restores an unsent linked-context draft synchronously, after any edited-resend history rollback has rendered, preserving text, selection and attachment chips before the old asynchronous read finishes. Pending undo notes return exactly once; a later completion cannot overwrite a new draft, reintroduce consumed notes or resurrect cleared notes. Clear intentionally discards the pending restoration. Regression tests cover Stop, Clear, a new send before the old read completes, and stopping an edited resend with attachments.
+- Skill loading returns the actual listed resource paths together with the skill file. use_skill and slash invocation discover nested resource-folder instructions from that same list, capped to the displayed 50 resources.
+- get_links reports its displayed resolved outgoing targets and linked source filenames even when no cached source line can be read, alongside the existing scanned-read paths. A regression isolates an outgoing target from the unrelated unlinked-content scan and verifies its folder rule reaches the provider.
+
+All 489 tests, TypeScript, Svelte (zero errors/warnings), production build and clean archive npm ci rebuild pass with matching assets. New checks are automated; desktop remains installed at `55f2663` and phone remains the original tested candidate. No newer native/mobile acceptance is claimed. Fresh current-head CI, Codex review and official Preview are required again after push.

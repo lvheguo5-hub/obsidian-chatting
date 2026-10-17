@@ -67,8 +67,12 @@ export function skillNamed(skills: Skill[], name: string): Skill | undefined {
  * with the vault tools.
  */
 export async function loadSkill(app: App, skill: Skill): Promise<string> {
+  return (await loadSkillContext(app, skill)).text;
+}
+
+async function loadSkillContext(app: App, skill: Skill): Promise<{ text: string; paths: string[] }> {
   const file = app.vault.getFileByPath(skill.path);
-  if (!file) return `The skill "${skill.name}" is gone (${skill.path} not found).`;
+  if (!file) return { text: `The skill "${skill.name}" is gone (${skill.path} not found).`, paths: [skill.path] };
   const text = await app.vault.cachedRead(file);
   const end = app.metadataCache.getFileCache(file)?.frontmatterPosition?.end.offset;
   let body = (end !== undefined ? text.slice(end) : text.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "")).trim();
@@ -76,9 +80,9 @@ export async function loadSkill(app: App, skill: Skill): Promise<string> {
   const resources = file.parent ? filesIn(file.parent).filter((path) => path !== file.path) : [];
   const listed = resources.slice(0, MAX_RESOURCES).map((path) => `- ${path}`).join("\n");
   const more = resources.length > MAX_RESOURCES ? `\n…and ${resources.length - MAX_RESOURCES} more.` : "";
-  return `<skill name="${skill.name}" path="${skill.path}">
+  return { paths: [skill.path, ...resources.slice(0, MAX_RESOURCES)], text: `<skill name="${skill.name}" path="${skill.path}">
 ${body || "(empty)"}
-</skill>${resources.length ? `\nThe skill's other files (read them when its instructions call for them):\n${listed}${more}` : ""}`;
+</skill>${resources.length ? `\nThe skill's other files (read them when its instructions call for them):\n${listed}${more}` : ""}` };
 }
 
 function filesIn(folder: TFolder): string[] {
@@ -94,7 +98,8 @@ export async function useSkill(app: App, folder: string, input: Record<string, u
   if (!skill) {
     return { result: `No skill named "${name}". Skills: ${skills.map((s) => s.name).join(", ") || "none"}.`, isError: true };
   }
-  return { result: await loadSkill(app, skill), isError: false, instructionPaths: [skill.path] };
+  const loaded = await loadSkillContext(app, skill);
+  return { result: loaded.text, isError: false, instructionPaths: loaded.paths };
 }
 
 /**
@@ -121,9 +126,9 @@ export async function invokedSkillsText(app: App, folder: string, text: string):
 export async function invokedSkillsContext(app: App, folder: string, text: string): Promise<MentionContext | null> {
   const invoked = invokedSkills(text, findSkills(app, folder));
   if (invoked.length === 0) return null;
-  const loaded = await Promise.all(invoked.map((skill) => loadSkill(app, skill)));
-  return { text: `[Skills the user invoked with /name; follow them for this request:]\n${loaded.join("\n\n")}`,
-    images: [], files: [], instructionPaths: invoked.map(skill => skill.path) };
+  const loaded = await Promise.all(invoked.map((skill) => loadSkillContext(app, skill)));
+  return { text: `[Skills the user invoked with /name; follow them for this request:]\n${loaded.map(skill => skill.text).join("\n\n")}`,
+    images: [], files: [], instructionPaths: [...new Set(loaded.flatMap(skill => skill.paths))] };
 }
 
 /** The `/name` being typed: a `/` at the start of a line or after a space, up to the caret. */

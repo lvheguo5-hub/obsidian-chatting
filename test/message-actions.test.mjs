@@ -502,3 +502,32 @@ for (const action of ['edit', 'regenerate', 'restored regenerate']) {
     assert.equal(plugin.chatHistory[0].linkSource, 'A/Source.md');
   });
 }
+
+
+test('Stopping edited linked preflight restores attachments after the original history is rendered', async () => {
+  const { plugin, view, chat } = await setup('anthropic');
+  const requests = answering('anthropic');
+  await view.handleUserMessage('Original', null, [{ ...image }]);
+  const originalHistory = [...plugin.chatHistory];
+  const clear = chat.clearMessages;
+  chat.clearMessages = () => { clear(); if (chat.draft) chat.draft = { ...chat.draft, selection: null, images: [], files: [] }; };
+  plugin.app.metadataCache = { getFirstLinkpathDest: () => ({ path: 'Hold.md', extension: 'md' }) };
+  let release;
+  let reading = false;
+  const read = plugin.app.vault.cachedRead;
+  plugin.app.vault.cachedRead = async file => {
+    if (file.path !== 'Hold.md') return read(file);
+    reading = true;
+    return new Promise(resolve => { release = resolve; });
+  };
+  const pending = view.editMessage(originalHistory[0].turnId, 'Edited [[Hold]]');
+  await until(() => reading);
+  view.handleStop();
+  assert.equal(chat.draft.text, 'Edited [[Hold]]');
+  assert.deepEqual(chat.draft.images, [{ ...image }]);
+  assert.equal(plugin.chatHistory[0], originalHistory[0]);
+  release('Late contents');
+  await pending;
+  assert.deepEqual(chat.draft.images, [{ ...image }]);
+  assert.equal(requests.length, 1);
+});

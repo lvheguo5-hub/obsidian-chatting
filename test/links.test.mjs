@@ -3,7 +3,7 @@
 // properties), outgoing links, and the earlier name get_backlinks.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { api } from './harness.mjs';
+import { api, settings, transport, response, text, call, callbacks } from './harness.mjs';
 
 const TEXT = {
   'Garden.md': '---\naliases: [Veg patch]\n---\nSee [[Seeds]] and [[Compost]].',
@@ -78,4 +78,29 @@ test('get_links: repeated mentions scan newline offsets once and keep exact line
   assert.equal(output.isError, false);
   assert.match(output.result, /Diary\.md \(4000 lines\)/);
   assert.ok(scans <= 4001, `newline rescans: ${scans}`);
+});
+
+
+test('Outgoing filenames and linked sources without cached lines report their folder rules', async () => {
+  const app = linksApp();
+  const original = app.vault.getFileByPath;
+  app.vault.getFileByPath = path => path === 'Private/AGENTS.md' ? { path } : original(path);
+  const read = app.vault.cachedRead;
+  app.vault.cachedRead = async file => file.path === 'Private/AGENTS.md' ? 'OUTGOING-TARGET-RULE' : read(file);
+  app.vault.getName = () => 'Test vault';
+  app.vault.getFolderByPath = () => null;
+  app.vault.getMarkdownFiles = () => []; // target is not part of the unrelated unlinked-content scan
+  app.metadataCache.resolvedLinks['Garden.md'] = { 'Private/Secret.md': 1 };
+  app.metadataCache.resolvedLinks['Uncached/Source.md'] = { 'Garden.md': 1 };
+  const result = await api.executeTool(app, 'get_links', {}, async () => '');
+  assert.ok(result.instructionPaths.includes('Private/Secret.md'));
+  assert.ok(result.instructionPaths.includes('Uncached/Source.md'));
+  const loop = new api.AgentLoop(app, settings('anthropic'));
+  const requests = transport((_body, index) => index === 0
+    ? response('anthropic', [call('links', 'get_links', {})], 'tool_use')
+    : response('anthropic', [text('done')], 'end_turn', index));
+  const cb = callbacks();
+  await loop.run('Find links', cb);
+  assert.deepEqual(cb.errors, []);
+  assert.match(JSON.stringify(requests[1]), /OUTGOING-TARGET-RULE/);
 });
