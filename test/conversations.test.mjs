@@ -617,3 +617,58 @@ test('Legacy capped history keeps its stored automatic title without inventing a
   await view.handleUserMessage('Next', null);
   assert.equal(plugin.activeConversation.title, 'Original Q0');
 });
+
+test('Saving many attachment-heavy named chats bounds all retained data before either JSON write and reload', async () => {
+  const { plugin, writes } = await setup('anthropic');
+  const payload = 'A'.repeat(12 * 1024 * 1024);
+  const records = [];
+  for (let i = 0; i < 4; i++) {
+    const attachment = { id: `large${i}`, fileName: `Large${i}.pdf`, mediaType: 'application/pdf', sizeBytes: 9 * 1024 * 1024, data: payload };
+    const c = api.chatState.newConversation(i);
+    c.chatHistory.push({ type: 'user', text: `Chat ${i}`, turnId: `t${i}`, attachedFiles: [attachment] });
+    c.agentMessages.push({ role: 'user', turnId: `t${i}`, content: [{ type: 'file', file: attachment }, text(`Chat ${i}`)] });
+    records.push(c);
+  }
+  plugin.conversations = records;
+  plugin.activeConversationId = records[0].id;
+  plugin.agent.importMessages(records[0].agentMessages);
+  let latest;
+  const writeSizes = [];
+  plugin.app.vault.adapter.write = async (_path, json) => { writeSizes.push(Buffer.byteLength(json)); latest = JSON.parse(json); };
+  await plugin.saveChatHistory();
+  assert.ok(writeSizes.every(size => size < 33 * 1024 * 1024));
+  assert.equal(latest.conversations.length, 4);
+  const data = c => c.agentMessages.flatMap(m => typeof m.content === 'string' ? [] : m.content).filter(b => b.type === 'file').map(b => b.file);
+  assert.equal(data(records[0]).length, 1, 'active gets priority despite oldest timestamp');
+  assert.equal(data(records[3]).length, 1, 'most recently used inactive gets remaining room');
+  assert.equal(data(records[1]).length, 0);
+  assert.equal(records[1].chatHistory[0].attachedFiles[0].data, '');
+  const restored = await setup('anthropic', latest);
+  assert.equal(restored.plugin.conversations.length, 4);
+  assert.equal(data(restored.plugin.conversations[1]).length, 0);
+  assert.equal(restored.plugin.conversations[1].chatHistory[0].attachedFiles[0].fileName, 'Large1.pdf');
+});
+
+test('Retention during an in-flight chained response forces replay of the bounded history next turn', async () => {
+  const { plugin, view } = await setup('openai');
+  plugin.app.workspace.getLeavesOfType = () => [];
+  plugin.app.vault.adapter.write = async () => {};
+  const payload = 'A'.repeat(12 * 1024 * 1024);
+  const attachment = i => ({ id: `pdf${i}`, fileName: `${i}.pdf`, mediaType: 'application/pdf', sizeBytes: 9 * 1024 * 1024, data: payload });
+  let release;
+  const requests = transport((body, index) => index === 2 ? new Promise(resolve => { release = () => resolve(response('openai', [text('A3')], 'end_turn', index)); }) : response('openai', [text(`A${index}`)], 'end_turn', index));
+  await view.handleUserMessage('Q1', null, [], [attachment(1)]);
+  await view.handleUserMessage('Q2', null, [], [attachment(2)]);
+  const third = view.handleUserMessage('Q3', null, [], [attachment(3)]);
+  for (let i = 0; i < 100 && !release; i++) await tick();
+  assert.ok(release, "third request reached transport");
+  assert.ok(requests[2].previous_response_id);
+  await plugin.saveChatHistory();
+  release();
+  await third;
+  await view.handleUserMessage('Q4', null);
+  assert.equal(requests[3].previous_response_id, undefined);
+  const serialized = JSON.stringify(requests[3]);
+  assert.match(serialized, /older chat history/);
+  assert.doesNotMatch(serialized, /"filename":"1.pdf"/);
+});

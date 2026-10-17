@@ -85,6 +85,7 @@ interface ChatContainerApi extends Record<string, unknown> {
   setInputEnabled(enabled: boolean): void;
   setBusy(busy: boolean): void;
   setComposerLocked?(locked: boolean): void;
+  setRetainedAttachments?(entries: ChatHistoryEntry[]): void;
   clearMessages(): void;
   focus(): void;
   setModel(name: string): void;
@@ -300,6 +301,12 @@ export class ObsidianChatView extends ItemView {
   /** Update the model display name in the header */
   updateModel(name: string): void {
     this.chatContainer?.setModel(name);
+  }
+
+  /** Release expired payloads also held by mounted thumbnails, without
+   * resetting the composer, tool steps, or an in-flight ask_user. */
+  refreshAttachmentData(): void {
+    this.chatContainer?.setRetainedAttachments?.(this.plugin.chatHistory);
   }
 
   /** Enter sends, or starts a new line (the "Enter sends message" setting). */

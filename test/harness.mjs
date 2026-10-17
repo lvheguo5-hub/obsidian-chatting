@@ -46,6 +46,7 @@ export const bundled = await build({
     export { foldPlan } from './src/ui/fold-turn';
     export * as files from './src/files/attachments';
     export * as skills from './src/agent/skills';
+    export * as attachmentHistory from './src/attachment-history';
     export { AttachmentPreparation } from './src/ui/attachment-preparation';
     export { buildSystemPrompt } from './src/agent/system-prompt';
   `, resolveDir: process.cwd(), loader: 'ts' },

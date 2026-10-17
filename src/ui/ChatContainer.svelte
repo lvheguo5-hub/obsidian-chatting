@@ -462,6 +462,16 @@
     composerLocked = value;
   }
 
+  export function setRetainedAttachments(entries: import("../types").ChatHistoryEntry[]): void {
+    const users = new Map(entries.filter(entry => entry.type === "user" && entry.turnId).map(entry => [entry.turnId, entry]));
+    for (const message of messages) {
+      const entry = message.turnId ? users.get(message.turnId) : undefined;
+      if (message.type !== "user" || !entry) continue;
+      message.images = entry.images;
+      message.attached = entry.attachedFiles;
+    }
+  }
+
   export function clearMessages(): void {
     attachmentPreparation.cancel();
     messages = [];

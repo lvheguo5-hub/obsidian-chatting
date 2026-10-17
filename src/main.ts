@@ -16,6 +16,7 @@ import { ObsidianChatView, VIEW_TYPE_CHAT } from "./ui/chat-view";
 import { closeFollowTab, closeLeftoverFollowTab } from "./ui/show-in-view";
 import { AgentLoop } from "./agent/loop";
 import type { ChangeLog } from "./tools/undo";
+import { boundConversationAttachments } from "./attachment-history";
 import {
   CHAT_STATE_VERSION,
   conversationTitle,
@@ -444,7 +445,14 @@ export default class ChatPlugin extends Plugin {
 
   /** Copies the agent's history into the active conversation's record. */
   private storeActiveMessages(): void {
+    this.agent?.trimForRetention();
     if (this.agent) this.activeConversation.agentMessages = this.agent.exportMessages();
+    const bounded = boundConversationAttachments(this.conversations, this.activeConversationId);
+    if (bounded.changed.has(this.activeConversationId)) {
+      this.agent.invalidateHistoryCursor();
+      this.getChatView()?.refreshAttachmentData();
+    }
+    if (bounded.omitted) new Notice("Older attachment data was removed from chat history to stay within the shared 32 MiB budget. File names and conversation text are kept; reattach a file to use it again.");
   }
 
   // ─── Chat history persistence ─────────────────────────────────────────
@@ -535,6 +543,8 @@ export default class ChatPlugin extends Plugin {
     // Older formats are migrated here; the next save writes the current one.
     const saved = state && migrateChatState(state);
     if (saved) {
+      const bounded = boundConversationAttachments(saved.conversations, saved.activeConversationId);
+      if (bounded.omitted) new Notice("Older attachment data was removed from chat history to stay within the shared 32 MiB budget. File names and conversation text are kept; reattach a file to use it again.");
       // The images' data comes from each conversation's API history (same image ID).
       for (const conversation of saved.conversations) {
         conversation.chatHistory = restoreImages(conversation.chatHistory, conversation.agentMessages);

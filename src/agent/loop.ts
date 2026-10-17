@@ -116,6 +116,22 @@ export class AgentLoop {
     clearChatGPTOAuthState();
   }
 
+  /** Retention may remove blobs while a request/tool is in flight. Keep the
+   * inner result arrays, but detach the provider's old outer-array cursor. */
+  invalidateHistoryCursor(): void {
+    this.messages = [...this.messages];
+    clearOpenAIState();
+    clearChatGPTOAuthState();
+  }
+
+  trimForRetention(): void {
+    const retained = trimHistory(this.messages, MAX_CONVERSATION_LENGTH);
+    if (retained !== this.messages) {
+      this.messages = retained;
+      this.invalidateHistoryCursor();
+    }
+  }
+
   /** Nothing in the API history yet. */
   isEmpty(): boolean {
     return this.messages.length === 0;
