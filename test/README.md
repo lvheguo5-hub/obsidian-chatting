@@ -73,7 +73,38 @@ against the real executor with fake image APIs, canvas drawing, and leaving
 older tool images out of requests. `images-once.test.mjs`: each attached
 image saved once, and the one-time migration of chats saved before
 `chat-state.json` had a version, and a chat saved by a newer version kept
-aside. These tests do not establish live-service or physical-iOS behavior.
+aside. `instructions.test.mjs`: the vault's `AGENTS.md`: the root file in
+the system prompt (cut after 32,768 characters, gone with the file), a
+folder's with the first tool result touching it (outer first, not repeated,
+again after a cut, the active note counts) and the *Vault instructions*
+settings row in both settings paths. `conversations.test.mjs`: the version 3
+format of `chat-state.json` and its one-time migration, new chat, switching,
+renaming and deleting through the chat view, OpenAI chaining and stopped
+turns per conversation, and the commands that start a new chat.
+`follow-edits.test.mjs`: following the AI's edits (the changed range or
+cards, the reused follow tab and Obsidian's match state, canvas cards
+selected and centered, the follow tab closed on unload and at the next
+start, the setting in both settings paths) and `open_document` with a text
+or a card. `mentions.test.mjs`: the mention at the caret (`@`, `[[`), the
+files offered and the link put in, and what a sent message's linked files
+add before it (notes capped, canvas outline, images, other files by name).
+`undo.test.mjs`: undo per answer (edits, new files and folders, renames and
+deletes taken back last first, files changed since named and asked about,
+the changes row and its state after a restart, undo kept within its
+conversation, and the note for the model with the next turn only).
+`files.test.mjs`: files (ZIP entries stored and deflated; the text of Word
+with headings, lists and tables, Excel sheets as CSV and PowerPoint in slide
+order; what a file becomes; each provider's form in a message and in a tool
+result such as `read_file` on a PDF, left out two turns later; attached
+files saved without their data, restored, and sent again on edit).
+`skills.test.mjs`: skills (finding them in the skills folder, the list in
+the system prompt before `AGENTS.md`, `use_skill`, `/name` in a message and
+the `/` list, and the *Skills* settings with folder, list and New skill in
+both settings paths). `fold-turn.test.mjs`: which rows of a finished turn
+fold into one line above its answer (steps, a text that led into one, the
+changes row; not an ask_user question, the answer or a single step without
+changes). These tests do not establish live-service or physical-iOS
+behavior.
 
 Two Node scripts that exercise the ChatGPT/Codex Responses endpoint
 **without** going through Obsidian, so iteration on the

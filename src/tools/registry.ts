@@ -1,14 +1,15 @@
 import type { UnifiedToolDef } from "../types";
 
 /**
- * All 9 tools the agent can call. Deliberately minimal:
- * read, edit, search, create, list, rename, delete, and ask-user.
+ * The tools the agent can call: notes, canvases, images, web pages, skills
+ * and ask_user. Each has a case in `executeTool` and a label in
+ * `ui/tool-label.ts`.
  */
 export const TOOL_DEFINITIONS: UnifiedToolDef[] = [
   {
     name: "read_document",
     description:
-      "Read the content of a markdown document. If no path is given, reads the currently active document. For .canvas files use read_canvas.",
+      "Read the content of a markdown document. If no path is given, reads the currently active document. For .canvas files use read_canvas. Images, PDFs and other binary files are refused (use view_image or read_file).",
     inputSchema: {
       type: "object",
       properties: {
@@ -78,7 +79,7 @@ export const TOOL_DEFINITIONS: UnifiedToolDef[] = [
   },
   {
     name: "read_file",
-    description: "Read the full content of any text file in the vault by its path. Refuses images (use view_image) and other binary files. For .canvas files prefer read_canvas, which is shorter and easier to follow.",
+    description: "Read a file in the vault by its path: a text file's full content, or a PDF, Word, Excel or PowerPoint file (attached for you to read, up to 10 MB). Refuses images (use view_image) and other binary files. For .canvas files prefer read_canvas, which is shorter and easier to follow.",
     inputSchema: {
       type: "object",
       properties: {
@@ -386,13 +387,21 @@ export const TOOL_DEFINITIONS: UnifiedToolDef[] = [
   {
     name: "open_document",
     description:
-      "Open a document in the Obsidian editor. Use this when the user wants to navigate to, view, or open a specific file.",
+      "Show the user a note or canvas: opens it in the main area and, with `text`, scrolls to and highlights that text; with `node_id`, selects that canvas card. Use this only when the user explicitly asks to open, show or go to something; never to show your own work (the user's view follows your edits by itself when they want that).",
     inputSchema: {
       type: "object",
       properties: {
         path: {
           type: "string",
           description: "Path to the file relative to vault root.",
+        },
+        text: {
+          type: "string",
+          description: "Optional: exact text in the note to scroll to and highlight (a heading or a passage).",
+        },
+        node_id: {
+          type: "string",
+          description: "Optional: ID of the canvas card to select and pan to (from read_canvas).",
         },
       },
       required: ["path"],
@@ -430,6 +439,21 @@ export const TOOL_DEFINITIONS: UnifiedToolDef[] = [
         },
       },
       required: ["url"],
+    },
+  },
+  {
+    name: "use_skill",
+    description:
+      "Load a skill from the vault: its instructions and the list of its other files. Call it before a task that matches a skill listed in the system prompt, then follow the instructions.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: {
+          type: "string",
+          description: "The skill's name as listed.",
+        },
+      },
+      required: ["name"],
     },
   },
 ];

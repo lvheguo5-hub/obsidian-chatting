@@ -24,11 +24,12 @@ function fakeChat() {
     addToolCall(name, input) { chat.shown.push({ id: nextId, type: 'tool-call', toolName: name, toolInput: input }); return nextId++; },
     updateToolResult(id) { const msg = chat.shown.find(m => m.id === id); if (msg) msg.type = 'tool-result'; },
     addError(value) { chat.shown.push({ id: nextId++, type: 'error', text: value }); },
+    restoreDraft(text, selection, images, files) { chat.draft = { text, selection, images, files }; },
     showThinking() {}, hideThinking() {},
     showAskUser(question) { chat.addAssistantMessage(question); return new Promise(resolve => { chat.askUser = resolve; }); },
     cancelAskUser() { const resolve = chat.askUser; chat.askUser = null; resolve?.(''); },
-    setInputEnabled() {}, setBusy(value) { chat.busy = value; },
-    clearMessages() { chat.shown = []; }, focus() {}, setModel() {},
+    setInputEnabled() {}, setBusy(value) { chat.busy = value; }, foldTurn() {},
+    clearMessages() { chat.shown = []; }, focus() {}, setModel() {}, setTitle() {},
     setSelection() {}, getSelection: () => null,
     editable: () => true, setEditable(check) { chat.editable = check; },
   };
@@ -256,7 +257,7 @@ test("A turn older than the saved API history can't be edited; both histories st
   assert.equal(view.chatContainer.editable(shownIds[1]), true);
 });
 
-test('The cut is saved at once, and the saved chat after the new turn restores consistently', async () => {
+test('The accepted replacement is saved consistently without persisting a premature cut', async () => {
   const { plugin, view, writes } = await setup('anthropic');
   answering('anthropic');
   for (const question of ['Q1', 'Q2', 'Q3']) await view.handleUserMessage(question, null);
@@ -267,13 +268,10 @@ test('The cut is saved at once, and the saved chat after the new turn restores c
   await new Promise(resolve => setTimeout(resolve, 2));
 
   await view.editMessage(ids[1], 'Edited');
-  // Saved before the new turn started: only the first turn is left.
-  assert.deepEqual(writes[3].chatHistory.map(e => e.text), ['Q1', 'A1']);
-  assert.deepEqual(writes[3].agentMessages.filter(m => m.turnId).map(m => m.turnId), [ids[0]]);
-
-  await until(() => writes.length === 5);
+  // No intermediate cut is persisted before preflight; the accepted replacement is saved.
+  await until(() => writes.length === 4);
   const final = writes.at(-1);
-  assert.deepEqual(final.chatHistory.map(e => e.text), ['Q1', 'A1', 'Edited', 'A4']);
+  assert.deepEqual(final.conversations[0].chatHistory.map(e => e.text), ['Q1', 'A1', 'Edited', 'A4']);
   const restored = await setup('anthropic', JSON.parse(JSON.stringify(final)));
   const restoredIds = turnIdsOf(restored.plugin);
   assert.deepEqual(restoredIds.ui, restoredIds.agent);
@@ -390,4 +388,146 @@ test('Restoring old selected turns drops full-note snapshots while retaining saf
   const {plugin}=await setup('anthropic',saved);
   assert.equal(plugin.chatHistory[0].selection.sourceText,undefined);
   assert.match(plugin.chatHistory[0].selection.sourceHash,/^[a-f0-9]{64}$/);
+});
+
+for (const action of ['edit', 'regenerate']) {
+  test(`${action}: grown linked attachments rejected before transport retain original turns and undo identity`, async () => {
+    const { plugin, view, chat, writes } = await setup('anthropic');
+    const requests = answering('anthropic');
+    for (const q of ['Q1', 'Q2', 'Q3']) await view.handleUserMessage(q, null);
+    const index = action === 'edit' ? 1 : 2;
+    const original = [...plugin.chatHistory];
+    const messages = JSON.parse(JSON.stringify(plugin.agent.exportMessages()));
+    const entry = plugin.chatHistory[index * 2];
+    entry.text = 'Compare [[One.pdf]] [[Two.pdf]]';
+    plugin.app.metadataCache = { getFirstLinkpathDest: link => ({ path: link, name: link, extension: 'pdf', stat: { size: 10 * 1024 * 1024 } }) };
+    plugin.app.vault.readBinary = async () => new Uint8Array(10 * 1024 * 1024).buffer;
+    if (action === 'edit') await view.editMessage(entry.turnId, entry.text);
+    else await view.regenerate();
+    assert.equal(requests.length, 3);
+    assert.deepEqual(plugin.agent.exportMessages(), messages);
+    assert.deepEqual(plugin.chatHistory.slice(0, original.length), original);
+    for (let i = 0; i < original.length; i++) assert.equal(plugin.chatHistory[i], original[i]);
+    assert.match(chat.shown.at(-1).text, /budget|limit/i);
+    assert.equal(chat.draft.text, entry.text);
+    await plugin.saveChatHistory();
+    assert.equal(writes.at(-1).conversations[0].chatHistory.filter(row => row.type === 'user').length, 3);
+  });
+}
+
+test('Edited resend rejected by final payload preflight restores all later answers and permits a smaller edit', async () => {
+  const { plugin, view, chat } = await setup('anthropic');
+  const file = { id: 'file', fileName: '10MiB.pdf', mediaType: 'application/pdf', sizeBytes: 10 * 1024 * 1024, data: 'A'.repeat(4 * Math.ceil(10 * 1024 * 1024 / 3)) };
+  plugin.agent.importMessages([
+    { role: 'user', turnId: 'one', content: [{ type: 'file', file }, text('Q1')] }, { role: 'assistant', content: [text('A1')] },
+    { role: 'user', turnId: 'two', content: [{ type: 'file', file }, text('Q2')] }, { role: 'assistant', content: [text('A2')] },
+    { role: 'user', turnId: 'three', content: 'Q3' }, { role: 'assistant', content: [text('A3')] },
+    { role: 'user', turnId: 'four', content: 'Q4' }, { role: 'assistant', content: [text('A4')] },
+  ]);
+  for (let i = 0; i < 4; i++) plugin.chatHistory.push({ type: 'user', turnId: ['one','two','three','four'][i], text: `Q${i+1}`, ...(i === 2 ? { attachedFiles: [file] } : {}) }, { type: 'assistant', text: `A${i+1}` });
+  const original = [...plugin.chatHistory];
+  const messages = plugin.agent.exportMessages();
+  plugin.activeConversation.notes = ['Keep pending undo note.'];
+  const requests = answering('anthropic');
+  await view.editMessage('three', 'Too large');
+  assert.equal(requests.length, 0);
+  assert.deepEqual(plugin.chatHistory.slice(0, 8), original);
+  assert.deepEqual(plugin.agent.exportMessages(), messages);
+  assert.deepEqual(plugin.activeConversation.notes, ['Keep pending undo note.']);
+  assert.equal(chat.draft.text, 'Too large');
+  plugin.chatHistory[4].attachedFiles = [];
+  await view.editMessage('three', 'Small edit');
+  assert.equal(requests.length, 1);
+  assert.deepEqual(plugin.chatHistory.filter(row => row.type === 'user').map(row => row.text), ['Q1', 'Q2', 'Small edit']);
+});
+
+test('Switching chats during edited context loading restores the source conversation before leaving', async () => {
+  const { plugin, view } = await setup('anthropic');
+  const requests = answering('anthropic');
+  for (const q of ['Q1', 'Q2']) await view.handleUserMessage(q, null);
+  const source = plugin.activeConversation;
+  const original = [...plugin.chatHistory];
+  const messages = JSON.parse(JSON.stringify(plugin.agent.exportMessages()));
+  plugin.app.metadataCache = { getFirstLinkpathDest: link => ({ path: link, name: link, extension: 'pdf', stat: { size: 10 } }) };
+  let release;
+  let reading = false;
+  plugin.app.vault.readBinary = async () => { reading = true; return new Promise(resolve => { release = resolve; }); };
+  const editing = view.editMessage(original[2].turnId, 'Read [[File.pdf]]');
+  await until(() => reading);
+  view.newChat();
+  assert.notEqual(plugin.activeConversationId, source.id);
+  release(new TextEncoder().encode('%PDF-1.7').buffer);
+  await editing;
+  assert.deepEqual(source.chatHistory, original);
+  assert.deepEqual(source.agentMessages, messages);
+  assert.equal(plugin.agent.isEmpty(), true);
+  assert.equal(requests.length, 2);
+});
+
+
+for (const action of ['edit', 'regenerate', 'restored regenerate']) {
+  test(`${action} resolves duplicate-basename links against the original note`, async () => {
+    let { plugin, view, writes } = await setup('anthropic');
+    let active = 'A/Source.md';
+    const sources = [];
+    const configure = () => {
+      const app = plugin.app;
+      app.workspace.getActiveFile = () => ({ path: active });
+      app.metadataCache = { getFirstLinkpathDest: (link, source) => {
+        sources.push(source);
+        return { path: source.startsWith('A/') ? 'A/Plan.md' : 'B/Plan.md', extension: 'md' };
+      }};
+      const original = app.vault.getFileByPath;
+      app.vault.getFileByPath = path => ['A/AGENTS.md', 'B/AGENTS.md'].includes(path) ? { path } : original(path);
+      app.vault.cachedRead = async file => file.path === 'A/Plan.md' ? 'ORIGINAL-PLAN-CONTENT'
+        : file.path === 'B/Plan.md' ? 'WRONG-PLAN-CONTENT'
+        : file.path === 'A/AGENTS.md' ? 'ORIGINAL-FOLDER-RULE' : 'OTHER-CONTENT';
+    };
+    configure();
+    const requests = answering('anthropic');
+    await view.handleUserMessage('Read [[Plan]]', null);
+    assert.equal(plugin.chatHistory[0].linkSource, 'A/Source.md');
+    await plugin.saveChatHistory();
+    if (action === 'restored regenerate') {
+      ({ plugin, view, writes } = await setup('anthropic', JSON.parse(JSON.stringify(writes.at(-1)))));
+      configure();
+    }
+    active = 'B/Source.md';
+    if (action === 'edit') await view.editMessage(plugin.chatHistory[0].turnId, 'Summarize [[Plan]]');
+    else await view.regenerate();
+    assert.deepEqual(sources, ['A/Source.md', 'A/Source.md']);
+    assert.match(JSON.stringify(requests.at(-1)), /ORIGINAL-PLAN-CONTENT/);
+    assert.match(JSON.stringify(requests.at(-1)), /ORIGINAL-FOLDER-RULE/);
+    assert.doesNotMatch(JSON.stringify(requests.at(-1)), /WRONG-PLAN-CONTENT/);
+    assert.equal(plugin.chatHistory[0].linkSource, 'A/Source.md');
+  });
+}
+
+
+test('Stopping edited linked preflight restores attachments after the original history is rendered', async () => {
+  const { plugin, view, chat } = await setup('anthropic');
+  const requests = answering('anthropic');
+  await view.handleUserMessage('Original', null, [{ ...image }]);
+  const originalHistory = [...plugin.chatHistory];
+  const clear = chat.clearMessages;
+  chat.clearMessages = () => { clear(); if (chat.draft) chat.draft = { ...chat.draft, selection: null, images: [], files: [] }; };
+  plugin.app.metadataCache = { getFirstLinkpathDest: () => ({ path: 'Hold.md', extension: 'md' }) };
+  let release;
+  let reading = false;
+  const read = plugin.app.vault.cachedRead;
+  plugin.app.vault.cachedRead = async file => {
+    if (file.path !== 'Hold.md') return read(file);
+    reading = true;
+    return new Promise(resolve => { release = resolve; });
+  };
+  const pending = view.editMessage(originalHistory[0].turnId, 'Edited [[Hold]]');
+  await until(() => reading);
+  view.handleStop();
+  assert.equal(chat.draft.text, 'Edited [[Hold]]');
+  assert.deepEqual(chat.draft.images, [{ ...image }]);
+  assert.equal(plugin.chatHistory[0], originalHistory[0]);
+  release('Late contents');
+  await pending;
+  assert.deepEqual(chat.draft.images, [{ ...image }]);
+  assert.equal(requests.length, 1);
 });

@@ -175,7 +175,7 @@ for (const provider of ['anthropic', 'openai', 'chatgpt-oauth']) {
     // The chat view gets text and a marker, never the image data.
     assert.equal(shown.length, 1);
     assert.equal(shown[0].images, undefined);
-    assert.match(shown[0].result, /\[1 image sent to the model\]$/);
+    assert.match(shown[0].result, /\[1 image prepared for the model\]$/);
 
     // The saved chat holds the image once: in the agent history only.
     const writes = [];
@@ -192,7 +192,7 @@ for (const provider of ['anthropic', 'openai', 'chatgpt-oauth']) {
 
     // A restored history sends the image again.
     const restored = new api.AgentLoop(app, settings(provider));
-    restored.importMessages(JSON.parse(writes[0]).agentMessages);
+    restored.importMessages(JSON.parse(writes[0]).conversations[0].agentMessages);
     const requests = transport(() => response(provider, [text('Still a cat')]));
     await restored.run('And now?', callbacks());
     assert.equal(imageOf(provider, { ...requests[0], messages: requests[0].messages?.slice(0, 3) }), expected);
@@ -544,4 +544,23 @@ test('view_image refuses oversized source bytes before reading and never decodes
   globalThis.createImageBitmap=async()=>{calls++;throw Error('must not decode a GIF');};
   try{assert.equal((await run(normal.app,'view_image',{path:'Pics/wide.gif'})).isError,false);assert.equal(calls,0);}
   finally{globalThis.createImageBitmap=original;}
+});
+
+test('view_canvas reports actual embedded image reads and delivers their folder rules with pixels', async () => {
+  const { app, text: notes } = imageVault();
+  notes.set('Pics/AGENTS.md', 'Use private pictures only for this request.');
+  const result = await run(app, 'view_canvas', { path: 'Board.canvas' });
+  assert.ok(result.instructionPaths.includes('Pics/cat.png'));
+  assert.ok(!result.instructionPaths.includes('Notes/Beta.md'));
+  const loop = new api.AgentLoop(app, settings('anthropic'));
+  const requests = transport((body, index) => index === 0
+    ? response('anthropic', [call('canvas', 'view_canvas', { path: 'Board.canvas' })], 'tool_use')
+    : response('anthropic', [text('Done')], 'end_turn', index));
+  await loop.run('Describe the board', callbacks());
+  const sent = JSON.stringify(requests[1]);
+  assert.match(sent, /Use private pictures only for this request/);
+  assert.match(sent, /base64/);
+  assert.doesNotMatch(sent, /instructionPaths|instructionSources/);
+  const focused = await run(app, 'view_canvas', { path: 'Board.canvas', focus: 'c' });
+  assert.deepEqual(focused.instructionPaths, ['Board.canvas']);
 });

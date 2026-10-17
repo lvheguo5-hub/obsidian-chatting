@@ -13,7 +13,7 @@ export const bundled = await build({
     export * from './src/api/model-catalog';
     export { sendMessage } from './src/api/client';
     export { AgentLoop } from './src/agent/loop';
-    export { trimHistory } from './src/agent/history';
+    export { trimHistory, withoutLargeToolText, MAX_TOOL_TEXT_CHARS } from './src/agent/history';
     export { sendAnthropicMessage } from './src/api/anthropic';
     export { sendOpenAIMessage, clearOpenAIState } from './src/api/openai';
     export { sendChatGPTOAuthMessage, setChatGPTOAuthService } from './src/api/chatgpt-oauth';
@@ -37,6 +37,18 @@ export const bundled = await build({
     export * as canvasRender from './src/tools/canvas-render';
     export { withoutOldToolImages } from './src/agent/history';
     export * as chatState from './src/chat-state';
+    export * as instructions from './src/agent/instructions';
+    export * as showInView from './src/ui/show-in-view';
+    export * as mentions from './src/ui/mentions';
+    export { TFile, TFolder } from 'obsidian';
+    export { ChangeLog } from './src/tools/undo';
+    export { UndoConfirmModal } from './src/ui/undo-confirm';
+    export { foldPlan } from './src/ui/fold-turn';
+    export * as files from './src/files/attachments';
+    export * as skills from './src/agent/skills';
+    export * as attachmentHistory from './src/attachment-history';
+    export { AttachmentPreparation } from './src/ui/attachment-preparation';
+    export { buildSystemPrompt } from './src/agent/system-prompt';
   `, resolveDir: process.cwd(), loader: 'ts' },
   bundle: true, write: false, platform: 'node', format: 'esm',
   plugins: [{ name: 'obsidian-test-transport', setup(build) {
@@ -52,12 +64,13 @@ export const bundled = await build({
       export class Menu {}
       export const MarkdownRenderer = { render: async () => {} };
       export class Modal {}
-      export class PluginSettingTab { containerEl = { addClass() {} }; hide() {} }
+      export class PluginSettingTab { constructor(app) { this.app = app; } containerEl = { addClass() {} }; hide() {} }
       export class Setting {}
       export const requireApiVersion = () => globalThis.__supportsNewObsidian === true;
       export class Notice { constructor(message) { (globalThis.__notices ??= []).push(message); } }
       export class TAbstractFile {}
       export class TFile { constructor(path) { this.path = path; this.extension = 'md'; } }
+      export class TFolder extends TAbstractFile { constructor(path, children = []) { super(); this.path = path; this.name = path.split('/').pop(); this.children = children; } }
       export const normalizePath = path => path;
       // As Obsidian: body tags, then the frontmatter's tags (a list or a comma/space separated text), each with '#'.
       export const getAllTags = cache => {
@@ -85,6 +98,17 @@ export const bundled = await build({
       // Tags dropped, paragraphs kept: enough to see which content got through.
       export const htmlToMarkdown = node => (typeof node === 'string' ? node : node.innerHTML).replace(/<\\/p>/g, '\\n\\n').replace(/<[^>]+>/g, '').trim();
       export const arrayBufferToBase64 = buffer => Buffer.from(buffer).toString('base64');
+      // Letters in order, any case; fewer gaps score higher (like Obsidian's, roughly).
+      export const prepareFuzzySearch = query => text => {
+        let at = -1, gaps = 0;
+        for (const ch of query.toLowerCase()) {
+          const next = text.toLowerCase().indexOf(ch, at + 1);
+          if (next === -1) return null;
+          if (at !== -1 && next !== at + 1) gaps++;
+          at = next;
+        }
+        return { score: -gaps, matches: [] };
+      };
     `, loader: 'js' }));
   } }],
 });
@@ -141,3 +165,6 @@ export function callbacks(extra = {}) {
   const errors = [], texts = [], executed = [];
   return { errors, texts, executed, onThinking() {}, onToolCall(name) { executed.push(name); }, onToolResult() {}, onResponse(value) { texts.push(value); }, onAskUser: async () => 'yes', onError(error) { errors.push(error); }, ...extra };
 }
+
+/** An app for the settings tab: a vault without files (no skills, no AGENTS.md). */
+export const settingsApp = { vault: { getFolderByPath: () => null, getFileByPath: () => null } };

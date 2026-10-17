@@ -2,7 +2,7 @@
 // the previous rules for models the catalog has no data on.
 import assert from 'node:assert/strict';
 import { test, beforeEach } from 'node:test';
-import { api, response, settings, text, transport } from './harness.mjs';
+import { api, response, settings, text, transport, settingsApp } from './harness.mjs';
 
 beforeEach(() => {
   for (const provider of ['anthropic', 'openai', 'chatgpt-oauth']) api.clearCatalogModels(provider);
@@ -144,7 +144,7 @@ test('Settings: the thinking level offers the catalog levels of the selected mod
   try {
     const saved = [];
     const plugin = { settings: { ...settings('chatgpt-oauth'), thinkingLevel: 'xhigh' }, async saveSettings() { saved.push(plugin.settings.thinkingLevel); }, reloadApiKeyForProvider() {}, chatgptOAuth: { getCredential: () => null } };
-    const tab = new api.ChatSettingTab({}, plugin);
+    const tab = new api.ChatSettingTab(settingsApp, plugin);
     let refreshes = 0;
     tab.display = () => { refreshes++; };
     const definitions = tab.getSettingDefinitions();
@@ -196,7 +196,7 @@ test('Settings before Obsidian 1.13: display() shows the thinking level only whe
   const shown = [];
   const ignore = () => {};
   Object.assign(tab, { containerEl: { empty: ignore }, renderProvider: ignore, renderChatGPTOAuthSection: ignore, renderModelSection: ignore,
-    renderWebSearch: ignore, renderEnterSends: ignore, renderMaxIterations: ignore, renderDebugLog: ignore, loadCatalog: async () => {}, renderThinkingLevel: setting => shown.push(setting) });
+    renderWebSearch: ignore, renderEnterSends: ignore, renderFollowEdits: ignore, renderInstructions: ignore, renderSkills: ignore, renderMaxIterations: ignore, renderDebugLog: ignore, loadCatalog: async () => {}, renderThinkingLevel: setting => shown.push(setting) });
   tab.display();
   assert.equal(shown.length, 0);
   tab.catalogModels = settingModels;

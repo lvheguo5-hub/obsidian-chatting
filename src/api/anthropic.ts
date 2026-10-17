@@ -1,5 +1,6 @@
 import { type ModelOption, cachedCatalog, catalogIdentity, catalogModel, resolveThinkingLevel } from "./model-catalog";
 import { requestUrl } from "obsidian";
+import { serializeRequest } from "./request-budget";
 import { ProviderError, retryAfterMs } from "./errors";
 import { withoutOldToolImages } from "../agent/history";
 import type {
@@ -9,6 +10,7 @@ import type {
   UnifiedResponse,
   ContentBlock,
   ImageAttachment,
+  FileAttachment,
 } from "../types";
 
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
@@ -104,6 +106,7 @@ export async function sendAnthropicMessage(
     body.tools = apiTools;
   }
 
+  const requestBody = serializeRequest(body);
   let response;
   try {
     response = await requestUrl({
@@ -114,7 +117,7 @@ export async function sendAnthropicMessage(
         "anthropic-version": "2023-06-01",
         "content-type": "application/json",
       },
-      body: JSON.stringify(body),
+      body: requestBody,
       throw: false,
     });
   } catch (e: unknown) {
@@ -233,12 +236,16 @@ function toAnthropicMessage(msg: UnifiedMessage, model: string, identity: string
   // Content blocks (tool_use responses from assistant, tool_result from user)
   const blocks = msg.content.map((block) => {
     if (block.type === "tool_result") {
-      // Images from view_image/view_canvas go inside the tool_result.
+      // Images from view_image/view_canvas and files from read_file go inside the tool_result.
       return {
         type: "tool_result",
         tool_use_id: block.tool_use_id,
-        content: block.images?.length
-          ? [{ type: "text", text: block.content || "(image)" }, ...block.images.map(anthropicImage)]
+        content: block.images?.length || block.files?.length
+          ? [
+              { type: "text", text: block.content || "(attached)" },
+              ...(block.images ?? []).map(anthropicImage),
+              ...(block.files ?? []).map(anthropicFile),
+            ]
           : block.content,
         is_error: block.is_error || false,
       };
@@ -254,10 +261,28 @@ function toAnthropicMessage(msg: UnifiedMessage, model: string, identity: string
     if (block.type === "image" && block.image) {
       return anthropicImage(block.image);
     }
+    if (block.type === "file" && block.file) {
+      return anthropicFile(block.file);
+    }
     return { type: "text", text: block.text };
   }).filter((b) => !(b.type === "text" && !b.text));
 
   return { role: msg.role, content: blocks };
+}
+
+/**
+ * A file: a PDF as a document Claude reads with its page images; Office and
+ * text files as a text document (Claude doesn't read Office files, so their
+ * text was read when attached); others named only.
+ */
+function anthropicFile(file: FileAttachment): Record<string, unknown> {
+  if (file.mediaType === "application/pdf" && file.data) {
+    return { type: "document", source: { type: "base64", media_type: "application/pdf", data: file.data }, title: file.fileName };
+  }
+  if (file.text?.trim()) {
+    return { type: "document", source: { type: "text", media_type: "text/plain", data: file.text }, title: file.fileName };
+  }
+  return { type: "text", text: `[${file.fileName}: Claude can't read this file type, or it has no text. Ask the user for it as a PDF, or as a .docx, .xlsx or .pptx file.]` };
 }
 
 function anthropicImage(image: ImageAttachment): Record<string, unknown> {

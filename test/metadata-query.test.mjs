@@ -57,7 +57,7 @@ test('query_notes: no filter is an error; no match says so', async () => {
   const empty = await query({});
   assert.equal(empty.isError, true);
   assert.match(empty.result, /list_metadata/);
-  assert.deepEqual(await query({ tags: ['missing'] }), { result: 'No notes match.', isError: false });
+  assert.deepEqual(await query({ tags: ['missing'] }), { result: 'No notes match.', isError: false, instructionPaths: ['Work/Alpha.md', 'Work/Beta.md', 'Work/Gamma.md', 'Home/Garden.md', 'Inbox.md'] });
 });
 
 test('query_notes only matches properties owned by the frontmatter', async () => {

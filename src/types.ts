@@ -1,3 +1,5 @@
+import type { ChangeLog } from "./tools/undo";
+
 // ─── Settings ───────────────────────────────────────────────────────────────
 
 export type Provider = "anthropic" | "openai" | "chatgpt-oauth";
@@ -16,8 +18,12 @@ export interface ChatSettings {
   enableWebSearch: boolean;
   /** Enter sends (Shift+Enter: new line); off: Enter is a new line, Ctrl/Cmd+Enter sends. */
   enterSends: boolean;
+  /** Show each edit the AI makes: its note or canvas opens at the changed spot (`ui/show-in-view.ts`). */
+  followEdits: boolean;
   /** Write `debug.log` in the plugin folder (troubleshooting; logs messages, never keys). */
   debugLog: boolean;
+  /** The vault folder with the skills, a subfolder with a SKILL.md each (`agent/skills.ts`). */
+  skillsFolder: string;
   modelCatalog?: import("./api/model-catalog").CatalogState;
 }
 
@@ -44,7 +50,9 @@ export const DEFAULT_SETTINGS: ChatSettings = {
   maxIterations: 20,
   enableWebSearch: true,
   enterSends: true,
+  followEdits: true,
   debugLog: false,
+  skillsFolder: "Skills",
 };
 
 // ─── Unified Message Format ─────────────────────────────────────────────────
@@ -58,10 +66,31 @@ export interface ImageAttachment {
   sizeBytes: number;
 }
 
+/**
+ * A file for the model (`files/attachments.ts`): a PDF or Office document
+ * as base64 `data` (with `text` read from Word, Excel and PowerPoint files,
+ * for providers that don't read them), or a text file as `text` only.
+ */
+export interface FileAttachment {
+  id: string;
+  fileName: string;
+  /** The document's type; `text/plain` for a file sent as its text. */
+  mediaType: string;
+  /** Base64 bytes without a data-URL prefix; empty for text files and in the saved visible history. */
+  data: string;
+  sizeBytes: number;
+  text?: string;
+}
+
 export interface ContentBlock {
-  type: "text" | "image" | "tool_use" | "tool_result";
+  /** Internal tool-result provenance, set only by the folder instruction loader. Never sent to providers. */
+  instructionSources?: string[];
+  /** Internal start of the trusted instruction suffix in tool-result content. */
+  instructionOffset?: number;
+  type: "text" | "image" | "file" | "tool_use" | "tool_result";
   text?: string;
   image?: ImageAttachment;
+  file?: FileAttachment;
   id?: string;
   name?: string;
   input?: Record<string, unknown>;
@@ -70,9 +99,13 @@ export interface ContentBlock {
   is_error?: boolean;
   /** tool_result only: images the tool returned (view_image, view_canvas). */
   images?: ImageAttachment[];
+  /** tool_result only: files the tool returned (read_file on a PDF or Office file). */
+  files?: FileAttachment[];
 }
 
 export interface UnifiedMessage {
+  /** Internal provenance for folder instructions prepended to this user turn. */
+  instructionSources?: string[];
   role: "user" | "assistant";
   content: string | ContentBlock[];
   /** Exact provider output for replay, separate from user-visible content. */
@@ -118,6 +151,17 @@ export interface ConversationContext {
   selection: string | null;
   vaultName: string;
   fileCount: number;
+  /** What the user did since the last turn that the model should know (e.g. undid an answer's changes). */
+  notes?: string[];
+}
+
+/** The files a message links to, for the model (`ui/mentions.ts`): their text, images as images, PDF and Office files as files. */
+export interface MentionContext {
+  text: string;
+  images: ImageAttachment[];
+  files: FileAttachment[];
+  /** Vault files whose contents were loaded into this user context. */
+  instructionPaths?: string[];
 }
 
 // ─── Selection Scope ────────────────────────────────────────────────────────
@@ -141,10 +185,17 @@ export interface SelectionScope {
 
 /** One entry of the visible chat history (`plugin.chatHistory`). */
 export interface ChatHistoryEntry {
-  type: "user" | "assistant" | "tool-result" | "error";
+  type: "user" | "assistant" | "tool-result" | "error" | "changes";
   text?: string;
+  /** Original active note for resolving links again on edit/regenerate. Empty means vault root. */
+  linkSource?: string;
   images?: ImageAttachment[];
-  /** User entries of a turn (not `ask_user` answers): the turn's ID, shared with the agent history. */
+  /** User entries: attached files (saved without data and text; restored from the API history). */
+  attachedFiles?: FileAttachment[];
+  /**
+   * User entries of a turn (not `ask_user` answers): the turn's ID, shared
+   * with the agent history; changes entries: the turn that made them.
+   */
   turnId?: string;
   /** User entries: the selection scope the turn ran with. */
   selection?: SelectionScope;
@@ -153,6 +204,20 @@ export interface ChatHistoryEntry {
   toolResult?: { result: string; isError: boolean };
   /** Error entries: "stopped" is the quiet note left by Stop before any answer was shown. */
   errorKind?: "stopped";
+  /** Changes entries (at the end of a turn): the files the turn changed. */
+  files?: string[];
+  /** Changes entries: the user undid them. */
+  undone?: boolean;
+}
+
+/** A row of the chat view's history list. */
+export interface ConversationSummary {
+  id: string;
+  title: string;
+  /** Last use, in ms. */
+  updatedAt: number;
+  /** The conversation shown now. */
+  active: boolean;
 }
 
 // ─── Tool Execution ─────────────────────────────────────────────────────────
@@ -160,11 +225,27 @@ export interface ChatHistoryEntry {
 export interface ToolResult {
   result: string;
   isError: boolean;
+  /** Internal first-touch paths (e.g. search reads); consumed by the loop, not saved or sent as metadata. */
+  instructionPaths?: string[];
   /**
    * Images for the model. They are kept only in the agent history; the
    * chat view gets the text with a marker instead (`AgentLoop`).
    */
   images?: ImageAttachment[];
+  /** Files for the model (read_file on a PDF or Office file); like images, only in the agent history. */
+  files?: FileAttachment[];
+  /** What a tool changed, for showing it to the user; never sent to the model or saved. */
+  focus?: ViewTarget;
+}
+
+/** A spot to show in a note (character range) or canvas (card IDs). */
+export interface ViewTarget {
+  path: string;
+  /** Range in the note's text after the change. */
+  from?: number;
+  to?: number;
+  /** Canvas cards. */
+  nodes?: string[];
 }
 
 // ─── Agent Loop Callbacks ───────────────────────────────────────────────────
@@ -176,4 +257,8 @@ export interface AgentCallbacks {
   onResponse: (text: string) => void;
   onAskUser: (question: string) => Promise<string>;
   onError: (error: string) => void;
+  /** A first request rejected locally before transport; the UI can restore its unsent draft. */
+  onPreflightRejected?: (error: string) => void;
+  /** Where the turn's tools record their vault changes (undo per answer). */
+  changes?: ChangeLog;
 }
