@@ -19,7 +19,7 @@ import { buildContext } from "./context";
 import { folderInstructionContext, instructionsGiven, rootInstructions, toolPaths } from "./instructions";
 import { findSkills, skillsPrompt } from "./skills";
 import { buildSystemPrompt, buildContextMessage } from "./system-prompt";
-import { trimHistory, cutBeforeTurn, editableTurn, newTurnId, withoutOldToolImages, withoutToolAttachments, MAX_CONVERSATION_LENGTH } from "./history";
+import { trimHistory, cutBeforeTurn, editableTurn, newTurnId, withoutOldToolImages, withoutToolAttachments, withoutLargeToolText, MAX_CONVERSATION_LENGTH } from "./history";
 import { debugLog } from "../debug";
 import { attachmentBudgetError } from "../files/attachments";
 import { RequestBudgetError } from "../api/request-budget";
@@ -110,7 +110,7 @@ export class AgentLoop {
 
   /** Restore API messages from persistence, as many as saving keeps */
   importMessages(messages: UnifiedMessage[]): void {
-    this.messages = trimHistory(messages, MAX_CONVERSATION_LENGTH);
+    this.messages = withoutLargeToolText(trimHistory(messages, MAX_CONVERSATION_LENGTH));
     this.pruneToolImages();
     clearOpenAIState();
     clearChatGPTOAuthState();
@@ -329,7 +329,7 @@ export class AgentLoop {
         let e = caughtError;
         if (isStopped()) return;
         if (i > 0 && e instanceof RequestBudgetError) {
-          const reduced = withoutToolAttachments(this.messages);
+          const reduced = withoutLargeToolText(withoutToolAttachments(this.messages));
           if (reduced !== this.messages) {
             this.messages = reduced;
             clearOpenAIState();
@@ -443,7 +443,6 @@ export class AgentLoop {
           result.result += "\nUndo snapshots exceeded their memory budget. This answer's changes are kept; undo is unavailable for the entire answer.";
           undoBudgetReported = true;
         }
-        debugLog(this.app, "TOOL_CALL", { name: tc.name, input: tc.input, result: result.result, isError: result.isError });
         if (isStopped()) return;
         if (folderRules && !writes.includes(tc.name!)) result.result = `${result.result}\n\n${folderRules}`;
         resultBlocks[index] = {
@@ -455,10 +454,13 @@ export class AgentLoop {
           ...(result.images?.length ? { images: result.images } : {}),
           ...(result.files?.length ? { files: result.files } : {}),
         };
+        this.messages = withoutLargeToolText(this.messages);
         this.pruneToolImages();
         // Pruning can copy this result message. Later calls in the same batch
         // must update its current array, not the superseded result array.
         resultBlocks = this.messages[this.messages.length - 1].content as ContentBlock[];
+        result.result = resultBlocks[index].content ?? "";
+        debugLog(this.app, "TOOL_CALL", { name: tc.name, input: tc.input, result: result.result, isError: result.isError });
         const { instructionPaths: _paths, ...visibleResult } = result;
         callbacks.onToolResult(tc.name!, displayResult(visibleResult));
       }

@@ -6,7 +6,7 @@
  */
 import { historySelection } from "./selection-history";
 import type { ChatHistoryEntry, FileAttachment, ImageAttachment, UnifiedMessage } from "./types";
-import { assignLegacyTurnIds, trimHistory, withoutOldToolImages, MAX_CONVERSATION_LENGTH } from "./agent/history";
+import { assignLegacyTurnIds, trimHistory, withoutOldToolImages, withoutLargeToolText, boundedToolText, MAX_CONVERSATION_LENGTH } from "./agent/history";
 
 /** Current format version of `chat-state.json`. */
 export const CHAT_STATE_VERSION = 3;
@@ -109,7 +109,7 @@ export function migrateChatState(value: unknown): Pick<ChatState, "activeConvers
         createdAt: typeof item.createdAt === "number" ? item.createdAt : 0,
         updatedAt: typeof item.updatedAt === "number" ? item.updatedAt : 0,
         chatHistory,
-        agentMessages: withoutOldToolImages(trimHistory(arrayOf<UnifiedMessage>(item.agentMessages), MAX_CONVERSATION_LENGTH)),
+        agentMessages: withoutLargeToolText(withoutOldToolImages(trimHistory(arrayOf<UnifiedMessage>(item.agentMessages), MAX_CONVERSATION_LENGTH))),
         ...(notes.length ? { notes } : {}),
       };
     });
@@ -173,7 +173,7 @@ export function savedConversation(conversation: ConversationRecord): Conversatio
   return {
     ...titled,
     chatHistory: withoutImageData(conversation.chatHistory.slice(-SAVED_ENTRIES)),
-    agentMessages: withoutOldToolImages(trimHistory(conversation.agentMessages, MAX_CONVERSATION_LENGTH)),
+    agentMessages: withoutLargeToolText(withoutOldToolImages(trimHistory(conversation.agentMessages, MAX_CONVERSATION_LENGTH))),
   };
 }
 
@@ -230,5 +230,9 @@ function isRecord(value: unknown): value is StateRecord {
 }
 
 function compactSelection(entry: ChatHistoryEntry): ChatHistoryEntry {
-  return entry.selection ? { ...entry, selection: historySelection(entry.selection) } : entry;
+  const compact = entry.selection ? { ...entry, selection: historySelection(entry.selection) } : entry;
+  const result = compact.toolResult?.result;
+  if (typeof result !== "string") return compact;
+  const clipped = boundedToolText(result);
+  return clipped === result ? compact : { ...compact, toolResult: { ...compact.toolResult!, result: clipped } };
 }

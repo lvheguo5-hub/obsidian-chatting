@@ -1,6 +1,6 @@
 import { arrayBufferToBase64 } from "obsidian";
 import type { FileAttachment, ImageAttachment } from "../types";
-import { officeKind, officeText } from "./office";
+import { officeKind, officeText, OFFICE_TEXT_CHARS } from "./office";
 
 /**
  * Files for the model: PDFs and Office documents go to the provider as
@@ -13,7 +13,7 @@ import { officeKind, officeText } from "./office";
 /** Largest file sent. Anthropic takes 32 MB per request, OpenAI 50 MB. */
 export const MAX_FILE_BYTES = 10 * 1024 * 1024;
 /** Text kept of a text file or read from an Office file. */
-export const FILE_TEXT_CHARS = 100000;
+export const FILE_TEXT_CHARS = OFFICE_TEXT_CHARS;
 /** Encoded attachments in one turn; leaves room for history, tools and text.
  * The transport also checks the exact final request, since history varies.
  */

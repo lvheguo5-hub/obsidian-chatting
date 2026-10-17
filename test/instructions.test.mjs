@@ -324,3 +324,27 @@ test('Selection-only requests deliver real folder rules before selected text wit
   await loop.run('After clear', callbacks(), selection);
   assert.match(requests[2].messages[0].content, /Summaries must hide private identifiers/);
 });
+
+test('Filename listings and metadata queries deliver the relevant subtree rules, including nonmatching metadata reads', async () => {
+  const { app, loop } = loopWith({
+    'Private/AGENTS.md': 'Treat private paths as sensitive.',
+    'Private/Sub/AGENTS.md': 'Keep subfolder results local.',
+    'Private/Sub/Plan.md': 'Plan',
+    'Other/AGENTS.md': 'Other metadata scope.',
+    'Other/NoMatch.md': 'Other',
+  });
+  app.vault.getFiles = () => [{ path: 'Private/Sub/Plan.md' }, { path: 'Other/NoMatch.md' }];
+  app.vault.getMarkdownFiles = app.vault.getFiles;
+  app.metadataCache = { getFileCache: () => ({ tags: [{ tag: '#project' }], frontmatter: { status: 'open' } }) };
+  for (const [name, input] of [['list_files', { folder: 'Private' }], ['query_notes', { tags: ['missing'] }], ['list_metadata', { folder: 'Private' }]]) {
+    loop.clear();
+    const requests = transport((body, index) => index === 0
+      ? response('anthropic', [call(name, name, input)], 'tool_use')
+      : response('anthropic', [text('Done')], 'end_turn', index));
+    await loop.run('Inspect files or metadata', callbacks());
+    const result = resultText(toolResults(requests[1]).at(-1));
+    assert.match(result, /Treat private paths as sensitive[\s\S]*Keep subfolder results local/);
+    if (name === 'query_notes') assert.match(result, /Other metadata scope/);
+    assert.doesNotMatch(JSON.stringify(requests), /instructionPaths|instructionSources/);
+  }
+});

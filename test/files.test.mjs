@@ -460,3 +460,30 @@ for (const provider of ['anthropic', 'chatgpt-oauth']) {
     assert.equal(blocks.find(block => block.type === 'file').file.data, file.data);
   });
 }
+
+test('PowerPoint stops text extraction within slides and never reads later oversized slide XML after its cap', async () => {
+  const bytes = zip({
+    'ppt/slides/slide1.xml': '<p:sld><a:p><a:r><a:t>' + 'X'.repeat(120000) + '</a:t></a:r></a:p></p:sld>',
+    'ppt/slides/slide2.xml': '<p:sld>' + ' '.repeat(9 * 1024 * 1024) + '</p:sld>',
+  });
+  const file = await api.files.fileAttachment('Large.pptx', bytes);
+  assert.ok(file.text.length <= api.files.FILE_TEXT_CHARS);
+  assert.match(file.text, /^## Slide 1/);
+  assert.match(file.text, /extraction limit reached/);
+  assert.doesNotMatch(file.text, /Slide 2/);
+  assert.equal(file.data, b64(bytes));
+});
+
+test('PowerPoint accumulates only capped slide text; oversized XML and Word table expansion refuse local extraction', async () => {
+  const slides = {};
+  for (let i = 1; i <= 20; i++) slides[`ppt/slides/slide${i}.xml`] = '<a:p><a:r><a:t>' + 'Y'.repeat(20000) + '</a:t></a:r></a:p>';
+  const file = await api.files.fileAttachment('Many.pptx', zip(slides));
+  assert.ok(file.text.length <= api.files.FILE_TEXT_CHARS);
+  assert.doesNotMatch(file.text, /Slide 20/);
+  const big = zip({ 'ppt/slides/slide1.xml': '<p:sld>' + ' '.repeat(9 * 1024 * 1024) + '</p:sld>' });
+  assert.equal((await api.files.fileAttachment('HugeXml.pptx', big)).text, undefined);
+  const table = '<w:tbl><w:tr>' + '<w:tc><w:p><w:r><w:t>x</w:t></w:r></w:p></w:tc>'.repeat(1000) + '</w:tr>' + '<w:tr><w:tc><w:p/></w:tc></w:tr>'.repeat(1000) + '</w:tbl>';
+  const doc = zip({ 'word/document.xml': '<w:document><w:body>' + table + '</w:body></w:document>' });
+  assert.equal((await api.files.fileAttachment('Wide.docx', doc)).text, undefined);
+  assert.ok((await api.files.fileAttachment('Normal.docx', DOCX)).text);
+});

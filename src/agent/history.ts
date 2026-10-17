@@ -30,6 +30,46 @@ export const MAX_TOOL_IMAGE_BYTES = 10 * 1024 * 1024;
 export const MAX_TOOL_FILES = 4;
 export const MAX_TOOL_FILE_BYTES = 10 * 1024 * 1024;
 
+export const MAX_TOOL_TEXT_CHARS = 100000;
+const TOTAL_TOOL_TEXT_CHARS = 200000;
+
+export function boundedToolText(text: string, limit = MAX_TOOL_TEXT_CHARS): string {
+  if (text.length <= limit) return text;
+  const notice = "\n[Tool text truncated to keep chat history within its size limit. Use search or a smaller focused extract for omitted content.]";
+  let end = Math.max(0, limit - notice.length);
+  if (end > 0 && /[\uD800-\uDBFF]/.test(text[end - 1])) end--;
+  const prefix = new TextDecoder().decode(new TextEncoder().encode(text.slice(0, end)));
+  return prefix + notice;
+}
+
+/** Bound text as well as binary tool payloads. A copied prefix releases the
+ * original large string's backing store. Clipped rules lose their delivery
+ * provenance, so a later write must discover the real instructions again. */
+export function withoutLargeToolText(messages: UnifiedMessage[]): UnifiedMessage[] {
+  let room = TOTAL_TOOL_TEXT_CHARS;
+  const replacement = new Map<ContentBlock, ContentBlock>();
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const content = messages[i].content;
+    if (typeof content === "string") continue;
+    for (let j = content.length - 1; j >= 0; j--) {
+      const block = content[j];
+      if (block.type !== "tool_result") continue;
+      const text = block.content ?? "";
+      const limit = Math.min(MAX_TOOL_TEXT_CHARS, room);
+      if (text.length <= limit) { room -= text.length; continue; }
+      const clipped = boundedToolText(text, limit);
+      if (clipped === text) continue;
+      const { instructionSources: _sources, ...rest } = block;
+      replacement.set(block, { ...rest, content: clipped });
+      room = Math.max(0, room - clipped.length);
+    }
+  }
+  if (!replacement.size) return messages;
+  return messages.map(message => typeof message.content === "string" ? message : {
+    ...message, content: message.content.map(block => replacement.get(block) ?? block),
+  });
+}
+
 /** Last-resort payload preflight recovery. Keep text, tool pairing and all
  * user attachments; explicitly tell the model why tool pixels/files left.
  */

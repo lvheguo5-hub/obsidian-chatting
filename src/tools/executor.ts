@@ -760,6 +760,7 @@ async function listFiles(
   return {
     result: capped.map((p) => `- ${p}`).join("\n") + suffix,
     isError: false,
+    instructionPaths: capped,
   };
 }
 

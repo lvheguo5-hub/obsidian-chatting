@@ -17,6 +17,27 @@ const SHEET_ROWS = 2000;
 const SHEET_COLUMNS = 16384;
 const WORKBOOK_CELLS = 100000;
 const WORKBOOK_TEXT_CHARS = 1000000;
+export const OFFICE_TEXT_CHARS = 100000;
+const MAX_XML_BYTES = 8 * 1024 * 1024;
+const MAX_XML_MATCHES = 20000;
+
+class TextBudget {
+  private parts: string[] = [];
+  left = OFFICE_TEXT_CHARS;
+  stopped = false;
+  add(text: string): void {
+    const part = text.slice(0, this.left);
+    // Release the backing XML rather than retaining a substring of it.
+    this.parts.push(new TextDecoder().decode(new TextEncoder().encode(part)));
+    this.left -= part.length;
+    if (text.length > part.length || this.left === 0) this.stopped = true;
+  }
+  result(): string {
+    const text = this.parts.join("");
+    const note = "\n(Office text extraction limit reached)";
+    return this.stopped ? text.slice(0, OFFICE_TEXT_CHARS - note.length) + note : text;
+  }
+}
 
 export type OfficeKind = "docx" | "xlsx" | "pptx";
 
@@ -30,23 +51,41 @@ export async function officeText(bytes: Uint8Array, kind: OfficeKind): Promise<s
   const entries = zipEntries(bytes);
   // One budget for the whole file: a crafted file can't unpack without end.
   const budget = unpackBudget();
-  const read = (name: string) => zipText(bytes, entries, name, budget);
+  const read = async (name: string) => {
+    const initial = Math.min(budget.left, MAX_XML_BYTES);
+    const entryBudget = { left: initial };
+    try { return await zipText(bytes, entries, name, entryBudget); }
+    finally { budget.left -= initial - entryBudget.left; }
+  };
   if (kind === "docx") {
     const xml = await read("word/document.xml");
     if (xml === null) throw new Error("no word/document.xml");
     return docxText(xml);
   }
   if (kind === "pptx") {
-    const slides = [...entries.keys()]
-      .map((name) => /^ppt\/slides\/slide(\d+)\.xml$/.exec(name))
-      .filter((match): match is RegExpExecArray => !!match)
-      .sort((a, b) => Number(a[1]) - Number(b[1]));
-    const parts: string[] = [];
-    for (const [name, number] of slides) {
-      const lines = paragraphs(await read(name) ?? "", "a");
-      parts.push(`## Slide ${number}${lines.length ? `\n${lines.join("\n")}` : ""}`);
+    const slides: { name: string; number: number }[] = [];
+    for (const name of entries.keys()) {
+      const number = /^ppt\/slides\/slide(\d+)\.xml$/.exec(name)?.[1];
+      if (!number) continue;
+      if (slides.length >= MAX_XML_MATCHES) throw new Error("Too many PowerPoint slides");
+      slides.push({ name, number: Number(number) });
     }
-    return parts.join("\n\n");
+    slides.sort((a, b) => a.number - b.number);
+    const text = new TextBudget();
+    for (const { name, number } of slides) {
+      if (text.stopped) break;
+      text.add(`${text.left < OFFICE_TEXT_CHARS ? "\n\n" : ""}## Slide ${number}`);
+      if (text.stopped) break;
+      const xml = await read(name) ?? "";
+      let count = 0;
+      for (const match of xml.matchAll(/<a:p\b[\s\S]*?<\/a:p>/g)) {
+        if (++count > MAX_XML_MATCHES) throw new Error("Too many Office XML paragraphs");
+        const line = runText(match[0], "a", text.left + 1).trim();
+        if (line) text.add(`\n${line}`);
+        if (text.stopped) break;
+      }
+    }
+    return text.result();
   }
   return await xlsxText(read);
 }
@@ -64,7 +103,12 @@ function decode(text: string): string {
 }
 
 function all(xml: string, pattern: RegExp): string[] {
-  return [...xml.matchAll(pattern)].map((match) => match[0]);
+  const parts: string[] = [];
+  for (const match of xml.matchAll(pattern)) {
+    if (parts.length >= MAX_XML_MATCHES) throw new Error("Too many Office XML elements");
+    parts.push(match[0]);
+  }
+  return parts;
 }
 
 function attribute(tag: string, name: string): string | undefined {
@@ -73,11 +117,13 @@ function attribute(tag: string, name: string): string | undefined {
 }
 
 /** A run of text in namespace `ns` (w: Word, a: PowerPoint): its texts, tabs and breaks. */
-function runText(xml: string, ns: string): string {
+function runText(xml: string, ns: string, limit = OFFICE_TEXT_CHARS + 1): string {
   const pattern = new RegExp(`<${ns}:t(?:\\s[^>]*)?>([^<]*)</${ns}:t>|<${ns}:tab\\s*/>|<${ns}:br\\s*/>`, "g");
   let text = "";
   for (const match of xml.matchAll(pattern)) {
-    text += match[1] !== undefined ? decode(match[1]) : match[0].includes(":tab") ? "\t" : "\n";
+    const part = match[1] !== undefined ? decode(match[1]) : match[0].includes(":tab") ? "\t" : "\n";
+    text += part.slice(0, Math.max(0, limit - text.length));
+    if (text.length >= limit) break;
   }
   return text;
 }
@@ -104,20 +150,29 @@ function docxParagraph(p: string): string {
 }
 
 function docxTable(table: string): string {
-  const rows = all(table, /<w:tr\b[\s\S]*?<\/w:tr>/g).map((row) =>
-    all(row, /<w:tc\b[\s\S]*?<\/w:tc>/g).map((cell) => paragraphs(cell, "w").join(" ").replace(/\|/g, "\\|")));
+  let cellCount = 0;
+  const rows = all(table, /<w:tr\b[\s\S]*?<\/w:tr>/g).map((row) => {
+    const cells = all(row, /<w:tc\b[\s\S]*?<\/w:tc>/g);
+    cellCount += cells.length;
+    if (cellCount > WORKBOOK_CELLS) throw new Error("Too many Word table cells");
+    return cells.map((cell) => paragraphs(cell, "w").join(" ").replace(/\|/g, "\\|"));
+  });
   if (rows.length === 0) return "";
   const width = Math.max(...rows.map((row) => row.length));
+  if (rows.length * width > WORKBOOK_CELLS) throw new Error("Word table expansion is too large");
   const line = (cells: string[]) => `| ${[...cells, ...Array<string>(width - cells.length).fill("")].join(" | ")} |`;
   return [line(rows[0]), line(Array<string>(width).fill("---")), ...rows.slice(1).map(line)].join("\n");
 }
 
 function docxText(xml: string): string {
   const blocks = all(xml, /<w:tbl\b[\s\S]*?<\/w:tbl>|<w:p\b[^>]*\/>|<w:p\b[\s\S]*?<\/w:p>/g);
-  return blocks
-    .map((block) => (block.startsWith("<w:tbl") ? docxTable(block) : docxParagraph(block)))
-    .filter(Boolean)
-    .join("\n\n");
+  const text = new TextBudget();
+  for (const block of blocks) {
+    const part = block.startsWith("<w:tbl") ? docxTable(block) : docxParagraph(block);
+    if (part) text.add(`${text.left < OFFICE_TEXT_CHARS ? "\n\n" : ""}${part}`);
+    if (text.stopped) break;
+  }
+  return text.result();
 }
 
 // ─── Excel ──────────────────────────────────────────────────────────────────
@@ -138,7 +193,7 @@ function csvValue(value: string): string {
 
 async function xlsxText(read: (name: string) => Promise<string | null>): Promise<string> {
   const shared = all(await read("xl/sharedStrings.xml") ?? "", /<si>[\s\S]*?<\/si>/g)
-    .map((si) => [...si.matchAll(/<t(?:\s[^>]*)?>([^<]*)<\/t>/g)].map((m) => decode(m[1])).join(""));
+    .map((si) => all(si, /<t(?:\s[^>]*)?>[^<]*<\/t>/g).map(tag => decode(tag.replace(/^<t(?:\s[^>]*)?>|<\/t>$/g, ""))).join(""));
   const workbook = await read("xl/workbook.xml") ?? "";
   const rels = await read("xl/_rels/workbook.xml.rels") ?? "";
   const targets = new Map(all(rels, /<Relationship\b[^>]*>/g).map((tag) => [attribute(tag, "Id") ?? "", attribute(tag, "Target") ?? ""]));
@@ -162,7 +217,7 @@ async function xlsxText(read: (name: string) => Promise<string | null>): Promise
         const type = attribute(open, "t");
         const raw = /<v>([^<]*)<\/v>/.exec(cell)?.[1];
         const value = type === "s" ? shared[Number(raw)] ?? ""
-          : type === "inlineStr" ? [...cell.matchAll(/<t(?:\s[^>]*)?>([^<]*)<\/t>/g)].map((m) => decode(m[1])).join("")
+          : type === "inlineStr" ? all(cell, /<t(?:\s[^>]*)?>[^<]*<\/t>/g).map(tag => decode(tag.replace(/^<t(?:\s[^>]*)?>|<\/t>$/g, ""))).join("")
           : type === "b" ? (raw === "1" ? "TRUE" : "FALSE")
           : decode(raw ?? "");
         if (textChars + value.length > WORKBOOK_TEXT_CHARS) throw new Error("Spreadsheet text expansion is too large");

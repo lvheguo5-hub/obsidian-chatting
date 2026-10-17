@@ -93,8 +93,9 @@ export function queryNotes(app: App, input: Record<string, unknown>): ToolResult
     return { result: "Give at least one of 'tags', 'properties' or 'folder'. To see which tags and properties exist, use list_metadata.", isError: true };
   }
 
-  const matches = app.vault.getMarkdownFiles()
-    .filter((file) => inFolder(file.path, folder))
+  const candidates = app.vault.getMarkdownFiles().filter((file) => inFolder(file.path, folder));
+  const instructionPaths = candidates.map(file => file.path);
+  const matches = candidates
     .map((file) => ({ file, tags: tagsOf(app, file), properties: propertiesOf(app, file) }))
     .filter((note) => tags.length === 0 || (anyTag ? tags.some((tag) => hasTag(note.tags, tag)) : tags.every((tag) => hasTag(note.tags, tag))))
     .filter((note) => filters.every(([key, wanted]) => matchesProperty(note.properties, key, wanted)));
@@ -114,7 +115,7 @@ export function queryNotes(app: App, input: Record<string, unknown>): ToolResult
     });
   }
 
-  if (matches.length === 0) return { result: "No notes match.", isError: false };
+  if (matches.length === 0) return { result: "No notes match.", isError: false, instructionPaths };
   // Shown with each note: its tags, and the properties asked about or sorted by.
   const shownKeys = [...new Set([...filters.map(([key]) => key), ...(sortBy === "path" || sortBy === "modified" ? [] : [sortBy])])];
   const lines = matches.slice(0, limit).map(({ file, tags: noteTags, properties }) => {
@@ -128,15 +129,17 @@ export function queryNotes(app: App, input: Record<string, unknown>): ToolResult
     return `- ${file.path}${details.length ? ` (${details.join("; ")})` : ""}`;
   });
   const more = matches.length > limit ? `\n\n(Showing ${limit} of ${matches.length} notes.)` : "";
-  return { result: `${matches.length} note(s):\n${lines.join("\n")}${more}`, isError: false };
+  return { result: `${matches.length} note(s):\n${lines.join("\n")}${more}`, isError: false, instructionPaths };
 }
 
 export function listMetadata(app: App, input: Record<string, unknown>): ToolResult {
   const folder = typeof input.folder === "string" ? input.folder : undefined;
   const tagCounts = new Map<string, number>();
   const propertyCounts = new Map<string, { count: number; example: unknown }>();
+  const instructionPaths: string[] = [];
   for (const file of app.vault.getMarkdownFiles()) {
     if (!inFolder(file.path, folder)) continue;
+    instructionPaths.push(file.path);
     for (const tag of tagsOf(app, file)) tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1);
     for (const [key, value] of Object.entries(propertiesOf(app, file))) {
       const seen = propertyCounts.get(key);
@@ -154,5 +157,5 @@ export function listMetadata(app: App, input: Record<string, unknown>): ToolResu
       ? `Properties${cut(properties.length)}:\n${properties.slice(0, MAX_LISTED).map(([key, { count, example }]) => `- ${key} (${count}), e.g. ${show(example).slice(0, 60)}`).join("\n")}`
       : "No properties.",
   ];
-  return { result: parts.join("\n\n"), isError: false };
+  return { result: parts.join("\n\n"), isError: false, instructionPaths };
 }
