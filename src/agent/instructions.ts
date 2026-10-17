@@ -31,21 +31,22 @@ function foldersOf(path: string): string[] {
   return parts.map((_, i) => parts.slice(0, i + 1).join("/"));
 }
 
-/** How a folder's instructions start in a tool result; `instructionsGiven` finds them by it. */
+/** Human-readable header only; never infer trusted delivery from content. */
 const header = (folder: string, path: string) =>
   `[Instructions for files in ${folder}/, from ${path}; they add to the vault's instructions and win where they differ:]`;
-const HEADER = /\[Instructions for files in .*?\/, from (.+?); they add to the vault's instructions/g;
 
 /** The folder AGENTS.md files the history has already given to the model. */
 export function instructionsGiven(messages: UnifiedMessage[]): Set<string> {
   const given = new Set<string>();
   for (const message of messages) {
     if (message.role !== "user") continue;
-    const texts = typeof message.content === "string" ? [message.content]
-      : message.content.flatMap(block => block.type === "tool_result" ? [block.content ?? ""] : block.type === "text" ? [block.text ?? ""] : []);
-    for (const text of texts) {
-      if (!text.includes("[Instructions for files in ")) continue;
-      for (const [, path] of text.matchAll(HEADER)) given.add(path);
+    for (const path of message.instructionSources ?? []) given.add(path);
+    if (Array.isArray(message.content)) {
+      for (const block of message.content) {
+        if (block.type === "tool_result") {
+          for (const path of block.instructionSources ?? []) given.add(path);
+        }
+      }
     }
   }
   return given;
@@ -58,14 +59,23 @@ export function instructionsGiven(messages: UnifiedMessage[]): Set<string> {
  * again after the turn that had them was cut away.
  */
 export async function folderInstructions(app: App, paths: string[], given: Set<string>): Promise<string> {
+  return (await folderInstructionContext(app, paths, given)).text;
+}
+
+/** Only this loader creates delivery provenance; vault/user text cannot. */
+export async function folderInstructionContext(app: App, paths: string[], given: Set<string>): Promise<{ text: string; sources: string[] }> {
   const parts: string[] = [];
+  const sources: string[] = [];
   for (const folder of [...new Set(paths.flatMap(foldersOf))]) {
     const path = `${folder}/${INSTRUCTIONS_FILE}`;
     if (given.has(path)) continue;
     const text = await readInstructions(app, path);
-    if (text) parts.push(`${header(folder, path)}\n${text}`);
+    if (text) {
+      parts.push(`${header(folder, path)}\n${text}`);
+      sources.push(path);
+    }
   }
-  return parts.join("\n\n");
+  return { text: parts.join("\n\n"), sources };
 }
 
 /** Tools whose `path` defaults to the active note. */

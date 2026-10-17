@@ -96,3 +96,14 @@ Head `09bf74619aa7d394a38e8ddb7d092a59269b873c` passed CI and its exact-head Com
 - Attachment preparation has a pending flag and generation guard. Sending is disabled while files/images are read or parsed; reset, conversation change, restoration and teardown invalidate old completions. A stale completion cannot append to a new draft or unlock its newer pending load.
 
 All 444 tests, TypeScript, Svelte (zero errors/warnings) and production build pass. Fresh external review and exact-head Preview are required again.
+
+
+Desktop supplement for `8114a20`: the clean-rebuilt candidate passed the mounted native Svelte attachment-loading check in the isolated desktop vault. Send and keyboard send stayed blocked while a deferred attachment was loading; starting a new chat invalidated the old completion, which added no chip and did not lock the new composer. Existing draft text remained intact. This was local DOM verification without a provider request or vault-file fixture; no newer phone acceptance is claimed. Evidence: `desktop-loading-8114a20.json` in the Phase 3 scratch directory. The harness initially expected New chat to clear draft text; the corrected assertion verifies the existing draft-preservation behavior separately from the loading guard.
+
+## External review, round 6
+
+Head `8114a20ecf1e2adab5a7c300c199d2ac7fdd6054` passed CI and its exact-head Community Preview (Completed, dependencies Pass, no Error/Fail). The scan also warned about assignment to a catch parameter; the retry handler now uses a separate local variable.
+
+Codex found that recognizing instruction headers in ordinary user/linked/tool text allowed a forged marker to suppress real folder rules. Delivery is now recorded only in internal `instructionSources` metadata created by the folder instruction loader, independently of all content text. Initial linked/skill context and tool results retain this provenance through save/restore and pruning; old histories without provenance safely reload the real rules. Provider adapters transmit the rules' text, never the bookkeeping metadata. Regression tests cover typed text, text blocks, tool results, linked notes, spoofed markers inside actual instruction files, save/restore, and re-delivery after history pruning.
+
+All 449 tests, TypeScript, Svelte (zero errors/warnings) and production build pass. Fresh review, CI and an exact-head Preview are required for the repair commit.

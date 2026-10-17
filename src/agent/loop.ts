@@ -16,7 +16,7 @@ import { clearChatGPTOAuthState } from "../api/chatgpt-oauth";
 import { TOOL_DEFINITIONS } from "../tools/registry";
 import { executeTool } from "../tools/executor";
 import { buildContext } from "./context";
-import { folderInstructions, instructionsGiven, rootInstructions, toolPaths } from "./instructions";
+import { folderInstructionContext, instructionsGiven, rootInstructions, toolPaths } from "./instructions";
 import { findSkills, skillsPrompt } from "./skills";
 import { buildSystemPrompt, buildContextMessage } from "./system-prompt";
 import { trimHistory, cutBeforeTurn, editableTurn, newTurnId, withoutOldToolImages, withoutToolAttachments, MAX_CONVERSATION_LENGTH } from "./history";
@@ -228,12 +228,14 @@ export class AgentLoop {
       (callbacks.onPreflightRejected ?? callbacks.onError)(budgetError);
       return;
     }
+    let instructionSources: string[] = [];
     try {
       const prospective: UnifiedMessage[] = [...this.messages, { role: "user", content: "", turnId }];
       const retained = prospective.length > MAX_CONVERSATION_LENGTH ? trimHistory(prospective, KEEP_RECENT) : this.messages;
-      const rules = await folderInstructions(this.app, mentioned?.instructionPaths ?? [], instructionsGiven(retained));
+      const rules = await folderInstructionContext(this.app, mentioned?.instructionPaths ?? [], instructionsGiven(retained));
       if (isStopped()) return;
-      if (rules) contextPrefix = `${rules}\n\n${contextPrefix}`;
+      instructionSources = rules.sources;
+      if (rules.text) contextPrefix = `${rules.text}\n\n${contextPrefix}`;
     } catch (e) {
       if (isStopped()) return;
       (callbacks.onPreflightRejected ?? callbacks.onError)(e instanceof Error ? e.message : String(e));
@@ -265,7 +267,7 @@ export class AgentLoop {
         ]
       : fullMessage;
     const beforeTurn = this.messages.slice();
-    this.messages.push({ role: "user", content, turnId });
+    this.messages.push({ role: "user", content, turnId, ...(instructionSources.length ? { instructionSources } : {}) });
 
     // Prune if conversation is too long
     this.pruneHistory();
@@ -305,7 +307,8 @@ export class AgentLoop {
           systemPrompt,
           isStopped
         );
-      } catch (e) {
+      } catch (caughtError) {
+        let e = caughtError;
         if (isStopped()) return;
         if (i > 0 && e instanceof RequestBudgetError) {
           const reduced = withoutToolAttachments(this.messages);
@@ -405,16 +408,18 @@ export class AgentLoop {
         // A newly discovered rule must reach the model before a write.
         // Rules returned earlier in this same batch have not reached it yet.
         const knownRules = instructionsGiven(this.messages.slice(0, -1));
-        let folderRules = await folderInstructions(this.app, toolPaths(this.app, tc.name!, tc.input!), knownRules);
+        const initialRules = await folderInstructionContext(this.app, toolPaths(this.app, tc.name!, tc.input!), knownRules);
+        let folderRules = initialRules.text;
+        const instructionSources = initialRules.sources;
         if (isStopped()) return;
         const writes = ["edit_document", "create_file", "rename_file", "delete_file", "set_properties", "edit_canvas"];
         const result = folderRules && writes.includes(tc.name!)
           ? { result: `No changes made. Read the folder instructions below, then retry the tool if it complies.\n\n${folderRules}`, isError: true }
           : await executeTool(this.app, tc.name!, tc.input!, callbacks.onAskUser, scope, callbacks.changes, turnSettings.skillsFolder);
         if (result.instructionPaths?.length) {
-          const included = instructionsGiven([{ role: "user", content: [{ type: "tool_result", tool_use_id: tc.id, content: folderRules }] }]);
-          const discovered = await folderInstructions(this.app, result.instructionPaths, new Set([...knownRules, ...included]));
-          folderRules = [folderRules, discovered].filter(Boolean).join("\n\n");
+          const discovered = await folderInstructionContext(this.app, result.instructionPaths, new Set([...knownRules, ...instructionSources]));
+          folderRules = [folderRules, discovered.text].filter(Boolean).join("\n\n");
+          instructionSources.push(...discovered.sources);
         }
         debugLog(this.app, "TOOL_CALL", { name: tc.name, input: tc.input, result: result.result, isError: result.isError });
         if (isStopped()) return;
@@ -423,6 +428,7 @@ export class AgentLoop {
           type: "tool_result",
           tool_use_id: tc.id,
           content: result.result,
+          ...(instructionSources.length ? { instructionSources } : {}),
           is_error: result.isError,
           ...(result.images?.length ? { images: result.images } : {}),
           ...(result.files?.length ? { files: result.files } : {}),

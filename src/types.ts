@@ -83,6 +83,8 @@ export interface FileAttachment {
 }
 
 export interface ContentBlock {
+  /** Internal tool-result provenance, set only by the folder instruction loader. Never sent to providers. */
+  instructionSources?: string[];
   type: "text" | "image" | "file" | "tool_use" | "tool_result";
   text?: string;
   image?: ImageAttachment;
@@ -100,6 +102,8 @@ export interface ContentBlock {
 }
 
 export interface UnifiedMessage {
+  /** Internal provenance for folder instructions prepended to this user turn. */
+  instructionSources?: string[];
   role: "user" | "assistant";
   content: string | ContentBlock[];
   /** Exact provider output for replay, separate from user-visible content. */
