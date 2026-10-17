@@ -463,3 +463,42 @@ test('Switching chats during edited context loading restores the source conversa
   assert.equal(plugin.agent.isEmpty(), true);
   assert.equal(requests.length, 2);
 });
+
+
+for (const action of ['edit', 'regenerate', 'restored regenerate']) {
+  test(`${action} resolves duplicate-basename links against the original note`, async () => {
+    let { plugin, view, writes } = await setup('anthropic');
+    let active = 'A/Source.md';
+    const sources = [];
+    const configure = () => {
+      const app = plugin.app;
+      app.workspace.getActiveFile = () => ({ path: active });
+      app.metadataCache = { getFirstLinkpathDest: (link, source) => {
+        sources.push(source);
+        return { path: source.startsWith('A/') ? 'A/Plan.md' : 'B/Plan.md', extension: 'md' };
+      }};
+      const original = app.vault.getFileByPath;
+      app.vault.getFileByPath = path => ['A/AGENTS.md', 'B/AGENTS.md'].includes(path) ? { path } : original(path);
+      app.vault.cachedRead = async file => file.path === 'A/Plan.md' ? 'ORIGINAL-PLAN-CONTENT'
+        : file.path === 'B/Plan.md' ? 'WRONG-PLAN-CONTENT'
+        : file.path === 'A/AGENTS.md' ? 'ORIGINAL-FOLDER-RULE' : 'OTHER-CONTENT';
+    };
+    configure();
+    const requests = answering('anthropic');
+    await view.handleUserMessage('Read [[Plan]]', null);
+    assert.equal(plugin.chatHistory[0].linkSource, 'A/Source.md');
+    await plugin.saveChatHistory();
+    if (action === 'restored regenerate') {
+      ({ plugin, view, writes } = await setup('anthropic', JSON.parse(JSON.stringify(writes.at(-1)))));
+      configure();
+    }
+    active = 'B/Source.md';
+    if (action === 'edit') await view.editMessage(plugin.chatHistory[0].turnId, 'Summarize [[Plan]]');
+    else await view.regenerate();
+    assert.deepEqual(sources, ['A/Source.md', 'A/Source.md']);
+    assert.match(JSON.stringify(requests.at(-1)), /ORIGINAL-PLAN-CONTENT/);
+    assert.match(JSON.stringify(requests.at(-1)), /ORIGINAL-FOLDER-RULE/);
+    assert.doesNotMatch(JSON.stringify(requests.at(-1)), /WRONG-PLAN-CONTENT/);
+    assert.equal(plugin.chatHistory[0].linkSource, 'A/Source.md');
+  });
+}

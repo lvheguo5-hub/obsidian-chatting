@@ -1,6 +1,6 @@
 # Phase 3: PRs #31–#38
 
-The author stack is cumulative, ending at `425d0c4beb12888197bfc40bff4577f8864a6872`. This branch starts at the Phase 2 candidate `5b419bf85d11d8b0bab9cb7c5a8c2c639f730441` and preserves its image limits, selection fingerprints, provider replay fixes, migration and validation repairs. Phase 2 was merged in PR #49 and published as 0.6.0; its formal Community release scan is pending.
+The author stack is cumulative, ending at `425d0c4beb12888197bfc40bff4577f8864a6872`. This branch starts at the Phase 2 candidate `5b419bf85d11d8b0bab9cb7c5a8c2c639f730441` and preserves its image limits, selection fingerprints, provider replay fixes, migration and validation repairs. Phase 2 was merged in PR #49 and published as 0.6.0; its formal Community release scan completed with dependencies Pass and no Error/Fail; Phase 2 acceptance is closed.
 
 ## Scope
 
@@ -155,3 +155,13 @@ Head `55f2663819aea029ee067ab20a8de9c6cf9ceda7` passed CI and exact-head Communi
 - PowerPoint extraction now consumes paragraphs lazily and stops at a shared 100,000-character text budget before reading later slides. Word extraction uses the same bounded output accumulator. Shared XML parsing additionally limits entries to 8 MiB and match counts to 20,000; Word table cells/padded expansion are bounded. These checks avoid equivalent intermediate-array amplification in shared helpers. If local extraction is unsafe, the original Office attachment remains intact without extracted text. Tests cover long/many slides, an oversized later slide that must not be read after the text cap, oversized XML, Word table expansion and a normal file afterward.
 
 All 477 tests, TypeScript, Svelte (zero errors/warnings) and production build pass. These engine boundaries have automated regression coverage; the last installed desktop/native supplement remains `55f2663` and the phone remains the original accepted candidate. No newer native/mobile acceptance is claimed. Fresh CI, Codex review and exact-head Community Preview are required after push.
+
+
+## External review, round 11
+
+Head `3572d2f6dbee93ad258661db7fca597adec91d1c` passed CI and its exact-head Community Preview (Completed, no Error/Fail, dependencies Pass, only two compatibility API recommendations). Codex found two further boundaries:
+
+- Tool results now record the trusted folder-rule suffix offset alongside instruction sources. Payload truncation applies to the tool body while preserving that complete suffix outside the payload allowance, including four nested near-limit instruction files. This keeps first-touch rules with long read output and lets deferred writes retry after receiving all rules. Save/restore preserves the suffix; adapters keep the internal offset off the wire. Legacy clipped results without a known suffix still lose provenance and safely reload rules.
+- Each visible user turn records its original link-resolution source note. Editing or regenerating reuses that source while reading the linked files' current content, so switching active notes cannot silently change a shortest-form link to another folder's same-named note. The optional source survives version-3 save/reload. Legacy turns without a recorded source consistently resolve from the vault root.
+
+All 482 tests, TypeScript, Svelte (zero errors/warnings), production build and a clean archive npm ci rebuild pass, with all three assets matching. New regressions exercise long reads, nested write deferral/retry, trusted-suffix persistence, and duplicate-basename links during edit, regeneration and regeneration after reload. These are automated engine checks; desktop remains installed at `55f2663` and phone remains the original tested candidate. No newer native/mobile acceptance is claimed. Fresh CI, Codex review and exact-head official Preview remain required after push.

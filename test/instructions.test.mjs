@@ -348,3 +348,52 @@ test('Filename listings and metadata queries deliver the relevant subtree rules,
     assert.doesNotMatch(JSON.stringify(requests), /instructionPaths|instructionSources/);
   }
 });
+
+
+test('Large read payloads retain the complete trusted rule suffix through trimming, save and restore', async () => {
+  const { loop } = loopWith({ 'Work/AGENTS.md': 'MANDATORY-WORK-RULE', 'Work/Large.md': 'x'.repeat(150000) });
+  const requests = transport((_body, index) => index === 0
+    ? response('anthropic', [call('large', 'read_document', { path: 'Work/Large.md' })], 'tool_use')
+    : response('anthropic', [text('done')], 'end_turn', index));
+  await loop.run('Read', callbacks());
+  const result = resultText(toolResults(requests[1])[0]);
+  assert.match(result, /Tool text truncated[\s\S]*MANDATORY-WORK-RULE$/);
+  const history = loop.exportMessages();
+  assert.deepEqual([...api.instructions.instructionsGiven(history)], ['Work/AGENTS.md']);
+  assert.equal(api.withoutLargeToolText(history), history);
+  const record = api.chatState.newConversation();
+  record.agentMessages = history;
+  const saved = JSON.parse(JSON.stringify(api.chatState.savedConversation(record)));
+  const restored = api.chatState.migrateChatState({ version: 3, activeConversationId: record.id, conversations: [saved] });
+  loop.importMessages(restored.conversations[0].agentMessages);
+  assert.match(loop.exportMessages().at(-2).content[0].content, /MANDATORY-WORK-RULE$/);
+  assert.deepEqual([...api.instructions.instructionsGiven(loop.exportMessages())], ['Work/AGENTS.md']);
+  assert.doesNotMatch(JSON.stringify(requests[1]), /instructionOffset|instructionSources/);
+});
+
+test('Four near-limit nested rules survive deferral and permit a compliant retry', async () => {
+  const { loop, files } = loopWith({
+    'A/AGENTS.md': 'A'.repeat(32700) + '-RULE-A',
+    'A/B/AGENTS.md': 'B'.repeat(32700) + '-RULE-B',
+    'A/B/C/AGENTS.md': 'C'.repeat(32700) + '-RULE-C',
+    'A/B/C/D/AGENTS.md': 'D'.repeat(32700) + '-RULE-D',
+    'A/B/C/D/Plan.md': 'Original',
+  });
+  const input = { path: 'A/B/C/D/Plan.md', operation: 'replace_all', content: 'Compliant' };
+  const requests = transport((body, index) => {
+    if (index < 2) {
+      if (index === 1) {
+        assert.equal(files.get(input.path), 'Original');
+        const result = resultText(toolResults(body).at(-1));
+        for (const marker of ['-RULE-A', '-RULE-B', '-RULE-C', '-RULE-D']) assert.ok(result.includes(marker));
+      }
+      return response('anthropic', [call('write-' + index, 'edit_document', input)], 'tool_use', index);
+    }
+    return response('anthropic', [text('done')], 'end_turn', index);
+  });
+  const cb = callbacks();
+  await loop.run('Apply compliant edit', cb);
+  assert.deepEqual(cb.errors, []);
+  assert.equal(files.get(input.path), 'Compliant');
+  assert.equal(requests.length, 3);
+});

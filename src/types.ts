@@ -85,6 +85,8 @@ export interface FileAttachment {
 export interface ContentBlock {
   /** Internal tool-result provenance, set only by the folder instruction loader. Never sent to providers. */
   instructionSources?: string[];
+  /** Internal start of the trusted instruction suffix in tool-result content. */
+  instructionOffset?: number;
   type: "text" | "image" | "file" | "tool_use" | "tool_result";
   text?: string;
   image?: ImageAttachment;
@@ -185,6 +187,8 @@ export interface SelectionScope {
 export interface ChatHistoryEntry {
   type: "user" | "assistant" | "tool-result" | "error" | "changes";
   text?: string;
+  /** Original active note for resolving links again on edit/regenerate. Empty means vault root. */
+  linkSource?: string;
   images?: ImageAttachment[];
   /** User entries: attached files (saved without data and text; restored from the API history). */
   attachedFiles?: FileAttachment[];

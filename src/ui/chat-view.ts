@@ -426,7 +426,7 @@ export class ObsidianChatView extends ItemView {
     };
     this.rollbackResend = rollback;
     this.chatContainer?.cutMessages(turnId);
-    await this.handleUserMessage(text, selection, images, files);
+    await this.handleUserMessage(text, selection, images, files, history[index].linkSource ?? "");
     if (this.rollbackResend === rollback) this.rollbackResend = undefined;
   }
 
@@ -451,7 +451,8 @@ export class ObsidianChatView extends ItemView {
     text: string,
     selection: SelectionScope | null,
     images: ImageAttachment[] = [],
-    files: FileAttachment[] = []
+    files: FileAttachment[] = [],
+    linkSource = this.plugin.app.workspace.getActiveFile()?.path ?? ""
   ): Promise<void> {
     if (this.running || this.undoing) {
       if (this.undoing) this.chatContainer?.restoreDraft?.(text, selection, images, files);
@@ -491,8 +492,7 @@ export class ObsidianChatView extends ItemView {
       // The files the message links to go along as they are now; the chat
       // shows only the typed text.
       const app = this.plugin.app;
-      const source = app.workspace.getActiveFile()?.path ?? "";
-      const linked = await mentionContext(app, mentionedFiles(app, text, source), { images, files });
+      const linked = await mentionContext(app, mentionedFiles(app, text, linkSource), { images, files });
       if (!isCurrent()) return;
       // Skills named as /name go along loaded, before the linked files.
       const skills = await invokedSkillsContext(app, this.plugin.settings.skillsFolder, text);
@@ -510,7 +510,7 @@ export class ObsidianChatView extends ItemView {
       // Only consume the submitted draft after its linked context is valid.
       // A rejected draft must not become an uneditable visible-only turn.
       chat.addUserMessage(text, images, turnId, savedSelection, files);
-      history.push({ type: "user", text, images, turnId, ...(savedSelection ? { selection: savedSelection } : {}), ...(files.length ? { attachedFiles: files } : {}) });
+      history.push({ type: "user", text, images, turnId, linkSource, ...(savedSelection ? { selection: savedSelection } : {}), ...(files.length ? { attachedFiles: files } : {}) });
       this.plugin.touchConversation();
       chat.setTitle(conversation.title);
       started = true;

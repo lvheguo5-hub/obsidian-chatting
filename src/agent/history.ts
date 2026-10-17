@@ -44,7 +44,9 @@ export function boundedToolText(text: string, limit = MAX_TOOL_TEXT_CHARS): stri
 
 /** Bound text as well as binary tool payloads. A copied prefix releases the
  * original large string's backing store. Clipped rules lose their delivery
- * provenance, so a later write must discover the real instructions again. */
+ * provenance, so a later write must discover the real instructions again.
+ * A loader-recorded instruction suffix is kept complete outside the payload
+ * allowance, including when multiple nested rules exceed the per-result cap. */
 export function withoutLargeToolText(messages: UnifiedMessage[]): UnifiedMessage[] {
   let room = TOTAL_TOOL_TEXT_CHARS;
   const replacement = new Map<ContentBlock, ContentBlock>();
@@ -55,12 +57,19 @@ export function withoutLargeToolText(messages: UnifiedMessage[]): UnifiedMessage
       const block = content[j];
       if (block.type !== "tool_result") continue;
       const text = block.content ?? "";
+      const offset = block.instructionOffset;
+      const hasRules = !!block.instructionSources?.length && Number.isInteger(offset) && offset! >= 0 && offset! <= text.length;
+      const payload = hasRules ? text.slice(0, offset) : text;
       const limit = Math.min(MAX_TOOL_TEXT_CHARS, room);
-      if (text.length <= limit) { room -= text.length; continue; }
-      const clipped = boundedToolText(text, limit);
-      if (clipped === text) continue;
-      const { instructionSources: _sources, ...rest } = block;
-      replacement.set(block, { ...rest, content: clipped });
+      if (payload.length <= limit) { room -= payload.length; continue; }
+      const clipped = boundedToolText(payload, limit);
+      if (clipped === payload) continue;
+      if (hasRules) {
+        replacement.set(block, { ...block, content: clipped + text.slice(offset), instructionOffset: clipped.length });
+      } else {
+        const { instructionSources: _sources, instructionOffset: _offset, ...rest } = block;
+        replacement.set(block, { ...rest, content: clipped });
+      }
       room = Math.max(0, room - clipped.length);
     }
   }

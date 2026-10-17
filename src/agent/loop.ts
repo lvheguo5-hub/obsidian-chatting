@@ -432,7 +432,7 @@ export class AgentLoop {
         if (isStopped()) return;
         const writes = ["edit_document", "create_file", "rename_file", "delete_file", "set_properties", "edit_canvas"];
         const result = folderRules && writes.includes(tc.name!)
-          ? { result: `No changes made. Read the folder instructions below, then retry the tool if it complies.\n\n${folderRules}`, isError: true }
+          ? { result: "No changes made. Read the folder instructions below, then retry the tool if it complies.", isError: true }
           : await executeTool(this.app, tc.name!, tc.input!, callbacks.onAskUser, scope, callbacks.changes, turnSettings.skillsFolder);
         if (result.instructionPaths?.length) {
           const discovered = await folderInstructionContext(this.app, result.instructionPaths, new Set([...knownRules, ...instructionSources]));
@@ -444,12 +444,13 @@ export class AgentLoop {
           undoBudgetReported = true;
         }
         if (isStopped()) return;
-        if (folderRules && !writes.includes(tc.name!)) result.result = `${result.result}\n\n${folderRules}`;
+        const instructionOffset = folderRules ? result.result.length : undefined;
+        if (folderRules) result.result = `${result.result}\n\n${folderRules}`;
         resultBlocks[index] = {
           type: "tool_result",
           tool_use_id: tc.id,
           content: result.result,
-          ...(instructionSources.length ? { instructionSources } : {}),
+          ...(instructionSources.length ? { instructionSources, instructionOffset } : {}),
           is_error: result.isError,
           ...(result.images?.length ? { images: result.images } : {}),
           ...(result.files?.length ? { files: result.files } : {}),
