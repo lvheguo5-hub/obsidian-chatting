@@ -7,7 +7,7 @@
 <br>
 [![GitHub Sponsors](https://img.shields.io/badge/GitHub%20Sponsors-o1xhack-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/o1xhack)
 
-**一個 agentic 的 AI 助理,常駐你的 Obsidian 庫 —— 手機、平板、桌面體驗一致。**
+**行動裝置優先的 AI 助理，透過對話閱讀、修改和整理你的 Obsidian 筆記庫。**
 
 > 🌐 [English](../../README.md) · [简体中文](README.zh-CN.md) · **繁體中文** · [日本語](README.ja.md)
 
@@ -19,73 +19,74 @@
 
 ---
 
-## ✨ 為什麼用它?
+## ✨ 用對話完成筆記裡的工作
 
-- **三個 provider,自己選** —— Anthropic API、OpenAI API,或者直接用你的 ChatGPT 帳號登入。不做半成品 provider 的市場。
-- **14 個 vault 原生工具** —— 讀、改、搜尋、建立、重新命名、frontmatter、backlinks 一應俱全。從想法到改動檔案,不用離開聊天框。
-- **手機端不打折** —— 聊天與筆記工具使用相容手機的請求方式；桌面支援瀏覽器登入，手機目前使用裝置驗證碼登入。
-- **選取作用域** —— 在筆記中選一段文字送進聊天,助理只在選取裡動手。
-- **密鑰進作業系統鑰匙圈** —— 絕不寫進 `data.json`,不會被同步到其他裝置。
+Chatting with AI 把一句話變成 Obsidian 裡的實際操作：尋找相關筆記、修改草稿、整理專案，或調整 Canvas。核心能力分為六組：
 
-## 🎬 一句話,自己調一連串工具
+- 📱 **行動裝置優先，輕量使用** — 手機、平板和桌面都能用，不需建立筆記庫索引或部署獨立後端。
+- 🧰 **能動手的筆記助理** — 透過 22 個內建工具搜尋和修改筆記、整理檔案與屬性、查看連結、操作 Canvas、讀取網頁。
+- 📎 **由你選擇任務上下文** — 使用目前筆記、把修改限制在選取範圍、透過 `@` 或 `[[` 引用檔案，並帶上圖片、PDF 和 Office 文件。
+- 🧩 **可重複使用的個人工作流程** — 用 `AGENTS.md` 說明筆記庫規則，用 Skills 保存常用任務，也能透過 `/name` 直接呼叫。
+- 👀 **看得見、可復原的變更** — 跟隨修改定位到筆記段落或 Canvas 卡片，查看執行步驟，並在本次工作階段的快照仍可用時復原某次回答的變更。
+- 💬 **獨立且可繼續的對話** — 為不同任務保留命名對話，重新啟動後接著聊，也能編輯之前的訊息、重新產生回答。
 
-你只問一次,助理自己決定該調哪些工具:
+支援 **Anthropic API**、**OpenAI API** 和 **ChatGPT 帳號登入**三種連線方式，沿用你既有的 AI 使用習慣。
 
-```
-你: 把 /Books 下面所有缺少 `rating` 屬性的筆記都加上 `rating: ?`。
+## 🎬 可以拿它做什麼
 
-助理
-  → search_vault("/Books")               → 12 個檔案
-  → get_properties("Books/Sapiens.md")   → 已有 rating
-  → get_properties("Books/Hail Mary.md") → 沒有 rating
-  → set_properties("Books/Hail Mary.md", { rating: "?" })
-  → ... (再來 5 次)
+### 在筆記、檔案和 Canvas 之間完成工作
 
-  搞定 —— 已為 6 個筆記加上 `rating: ?`:
-  - Books/Hail Mary.md
-  - Books/Klara and the Sun.md
-  - ...
-```
+直接用自然語言提出需求。助理會選擇工具、閱讀相關資料，再在筆記庫裡執行操作。
 
-策略很簡單:先讀再改、能小改不大改、使用者確認過的事不再問第二次。
+> 找出 Books 資料夾裡缺少評分的筆記，加上 `rating: ?`。
+>
+> 比較這幾篇會議紀錄，把決定整理成專案計畫。
+>
+> 把 Canvas 上的想法分組，連接相關卡片。
 
-## 🎯 選取作用域
+依內容、標籤或屬性尋找筆記；檢查傳入、傳出連結和未連結提及；讀取和編輯 Canvas 卡片及連線；查看庫內圖片，並把網頁讀成文字。
 
-在任意筆記中選一段文字,右鍵 → **Send selection to Chat**。選取會以 pill 形式出現在輸入框上方,助理只在選取裡動手 —— 文件其餘部分一個位元組都不會變。
+### 為每個任務提供合適的上下文
 
-```
-[ pill: "...開頭有點拖沓,而且..."  ✕ ]
+從目前筆記開始，或輸入 `@` / `[[` 引用指定檔案。透過輸入框或貼上附加圖片、PDF、Word、Excel、PowerPoint 和文字檔。Canvas 可以提供結構大綱，也能由助理查看畫面配置。
 
-你: 收緊一下 —— 別丟我的語氣
-```
+只想改一段時，選取文字並選擇 **Send selection to chat**。工具會把對該筆記的直接編輯限制在選取範圍內；其他筆記仍可編輯，重新命名其他檔案時，Obsidian 也仍可能更新這裡的連結。
 
-助理使用作用域到選取文字的尋找替換。選取以外的內容原封不動。
+### 讓助理遵循你的工作方式
 
-## 🛠️ 14 個 vault 原生工具
+根目錄的 `AGENTS.md` 定義整個庫的規則；某個資料夾中的 `AGENTS.md` 會在對話首次涉及該目錄時補充局部規則。在庫內 `Skills` 資料夾中保存可重複使用的任務，每個任務包含 `SKILL.md`，還可以帶範本和範例。助理能依任務載入相應技能，你也可以輸入 `/` 主動選擇。
 
-| 分組 | 工具 | 用途 |
+Skills 沿用 Claude Code / Codex 的資料夾格式。助理可以讀取說明和配套檔案，但不會執行其中的指令碼。
+
+### 檢查變更，繼續對話
+
+**Follow the AI's edits** 會定位到修改的筆記段落或 Canvas 卡片，同時保留聊天輸入焦點。完成的工具步驟摺疊成一行，需要時展開。每次回答的 **Undo** 可以還原記錄下來的編輯、建立、重新命名和刪除；如果檔案之後又被修改，會先詢問。復原快照有容量限制且僅保存在記憶體裡，重新啟動或快照過期後不能再復原。
+
+可以新增、切換、重新命名和刪除獨立對話，每個對話只向模型傳送自己的聊天紀錄，重新啟動 Obsidian 後也能繼續。還支援編輯歷史訊息、複製回答和重新產生最後一次回答。編輯或重新產生不會復原已經發生的檔案變更。
+
+回答支援 Markdown、表格、雙向連結和數學公式。向上閱讀舊訊息時不會被強制拉回底部，需要時可以一鍵回到最新回答。
+
+## ⚙️ 三種連線方式
+
+| 連線方式 | 需要什麼 | 如何使用 |
 |---|---|---|
-| **讀取** | `read_document`、`read_file`、`search_vault`、`list_files`、`get_backlinks`、`get_properties`、`get_current_datetime` | 開啟任意筆記或檔案;依檔名與內容搜尋;瀏覽庫結構;查找 backlinks;讀取 YAML frontmatter;取得你時區下的當前時間。 |
-| **寫入** | `edit_document`、`create_file`、`set_properties` | 精準尋找替換 / 插入 / 整段替換;建立新筆記(父目錄自動建立);安全合併或移除 YAML frontmatter。 |
-| **管理** | `rename_file`、`delete_file`、`open_document`、`ask_user` | 重新命名或移動(連結自動更新);移到垃圾桶(遵守你的垃圾桶設定);在編輯器中開啟檔案;不清楚時反問你一句。 |
+| **Anthropic** | Anthropic API key | 使用 Claude 模型；思考和網頁搜尋能力取決於模型。 |
+| **OpenAI** | OpenAI API key | 透過 Responses API 使用 OpenAI 模型；推理和網頁搜尋能力取決於模型。 |
+| **ChatGPT 帳號** | 具備 Codex 存取權限的 ChatGPT 方案 | 登入帳號，使用該帳號可存取的 Codex 模型。 |
 
-## ⚙️ 三個 Provider
+模型清單從對應服務或帳號取得，快取 24 小時，也可以隨時手動重新整理；服務提供相關資訊時，思考等級跟隨模型目錄。實際可用模型及權限取決於服務和帳號。
 
-| Provider | 認證方式 | 預設模型 | 備註 |
-|---|---|---|---|
-| **Anthropic** | API key | Claude Sonnet 4.6 | 自適應思考、網路搜尋、prompt 快取。 |
-| **OpenAI** | API key | Codex 5.3 | Responses API、推理、網路搜尋。 |
-| **ChatGPT 帳號** | 登入 ChatGPT | GPT-5.5 | 以 ChatGPT 套餐代替 OpenAI API key。 |
-
-> **關於 ChatGPT 帳號登入。** 這個 provider 以你的 ChatGPT 帳號登入,請求走的是 ChatGPT/Codex 後端(不是 `api.openai.com`),需要一份已開通 Codex 的 ChatGPT 套餐。可用模型對齊 Codex CLI 的目錄。
+桌面端 ChatGPT 登入會開啟瀏覽器並自動返回。桌面也可用裝置驗證碼登入，手機目前採用這一方式。憑據依裝置保存，同步筆記庫不會讓另一台裝置自動登入。
 
 ## 🚀 快速上手
 
+需要 **Obsidian 1.11.4 或更新版本**，支援桌面、iOS 和 Android。
+
 1. 開啟 **設定 → 社群外掛 → 瀏覽**。
-2. 搜尋 **Chatting with AI**。
-3. 點擊 **安裝**,再點擊 **啟用**。
-4. **設定 → Chatting with AI** → 選 provider,貼上 API key(或點 **Connect ChatGPT**)。
-5. 從側欄圖示或命令面板開啟聊天。
+2. 搜尋 **Chatting with AI**，點擊 **安裝**，再點擊 **啟用**。
+3. 開啟 **設定 → Chatting with AI**，選擇連線方式。
+4. 填入 API key，或連接 ChatGPT 帳號。
+5. 從側邊欄圖示或命令面板開啟聊天，開始處理筆記。
 
 ## 📦 安裝
 
@@ -137,83 +138,34 @@ ln -s "$(pwd)" /path/to/vault/.obsidian/plugins/chatting-with-ai
 
 </details>
 
-## 🧭 設計原則
+## 🔐 隱私與控制
 
-| 原則 | 意思 |
-|---|---|
-| **行動端不是補丁** | 聊天與筆記工具支援手機，不依賴 Node 模組。桌面與 iPhone 真機驗收範圍見 `docs/phase1-review.md`。 |
-| **三個靠譜 provider** | Anthropic + OpenAI 求穩定,ChatGPT 帳號給不想設 API key 的人。 |
-| **密鑰進鑰匙圈** | API key 與 OAuth 憑證都走 Obsidian SecretStorage。絕不進 `data.json`,因此也不會被 Obsidian Sync 同步到其他裝置。 |
-| **不做向量索引** | 線性搜尋加上限保護。可預期、無背景工作、手機記憶體壓力小。 |
-| **會話自動保留** | 聊天紀錄在 Obsidian 重啟後仍在。本機 `chat-state.json`,不同步。 |
-| **手機由右側滑入** | 從右邊滑入側欄,底下的文件不被遮擋。 |
+- **不在背景上傳或索引整個庫。** 訊息、目前筆記上下文、引用或附加的檔案、載入的規則及工具讀取的資料，會依對話需要傳送給選定的模型服務。這是雲端模型助理，不是裝置端本機模型。
+- **憑據使用 Obsidian SecretStorage。** API key 和 ChatGPT 登入憑據不寫入外掛的 `data.json`，每台裝置需要單獨連線。
+- **聊天紀錄保存在筆記庫的外掛目錄。** 命名對話寫入 `chat-state.json`。外掛沒有聊天同步服務，這些檔案是否到達其他裝置取決於你的同步設定。附件資料有保留上限，較舊附件可能只顯示名稱。
+- **變更直接發生在筆記庫裡。** 選取範圍限制針對所選筆記的直接編輯；復原依賴目前可用的快照，長期恢復請使用日常備份或版本歷程。
+- **網頁與附件屬於外部輸入。** 讀取網頁會使用本機網路，包括本機能存取的區域網路位址。不要把網頁或檔案裡隱藏的指令當作可信規則。附件和請求設有容量限制，以控制裝置記憶體和請求大小。
 
-## 🗺️ 路線圖
+附件限制、不同模型對 PDF / Office 的處理方式、完整工具清單、設定和恢復說明見 **[使用指南（英文）](../user-guide.md)**。已記錄的驗證範圍見[桌面與 iPhone 驗收紀錄](../phase1-review.md)。
 
-- [x] 三個 provider(Anthropic、OpenAI、ChatGPT 帳號)
-- [x] 14 個 vault 原生工具
-- [x] iOS / Android 體驗一致
-- [x] 選取作用域
-- [x] 上架 Obsidian 社群外掛市場
-- [ ] 多會話紀錄 + 歸檔/搜尋
-- [ ] Provider 支援的圖片附件
-- [ ] 上游新發佈的 provider 模型自動跟進
+## 🗺️ 接下來
 
-有想法?直接開 issue。
-
-## ❓ 常見問題
-
-<details>
-<summary><b>我的筆記會不會被上傳到別處?</b></summary>
-
-只發送當前這一輪助理需要的內容。你提問時,助理決定該調哪些工具 —— `read_document`、`search_vault` 等等 —— 這些呼叫取得的內容(加上當前筆記的上下文)會送往你選的 provider。背景不會做任何上傳。**沒有向量索引。**
-
-</details>
-
-<details>
-<summary><b>行動端真的能用嗎?</b></summary>
-
-可以。請求透過 Obsidian 的 `requestUrl()`，手機不載入 Node 模組。桌面 ChatGPT 可用瀏覽器回呼登入，手機目前使用裝置驗證碼登入。登入憑據按裝置儲存，同步庫不會讓另一台裝置自動登入。
-
-</details>
-
-<details>
-<summary><b>用 ChatGPT 帳號登入是免費的嗎?</b></summary>
-
-它沿用你既有的 ChatGPT 套餐(Plus、Pro、Team、Enterprise)—— 沒有額外計費。你需要一份已開通 Codex 的 ChatGPT 套餐。外掛不會呼叫 `api.openai.com`,而是呼叫 Codex CLI 使用的同一套後端。
-
-</details>
-
-<details>
-<summary><b>能不能加上 X provider?</b></summary>
-
-大概率不會 —— 把 provider 名單保持很小是個明確的取捨。兩家 API provider 涵蓋主要 API 生態,ChatGPT 帳號登入覆蓋「我只有一份 ChatGPT 套餐」的情境。再加更多就得在手機端驗證更多組合。
-
-</details>
-
-<details>
-<summary><b>聊天紀錄存在哪?會同步嗎?</b></summary>
-
-存在本機 `<vault>/.obsidian/plugins/chatting-with-ai/chat-state.json`。**Obsidian Sync 預設排除外掛資料檔**,不會被同步。API key 透過 SecretStorage 進作業系統鑰匙圈,同樣不同步。
-
-</details>
+命名對話、圖片和文件附件、模型目錄重新整理、Canvas、筆記庫規則和 Skills 均已提供。**歷史對話的封存與搜尋仍在路線圖中。** 每個版本的變化見[發行紀錄](https://github.com/o1xhack/obsidian-chatting/releases)，也歡迎[提交 Issue](https://github.com/o1xhack/obsidian-chatting/issues) 回饋。
 
 ## 🤝 參與貢獻
 
-歡迎提 Issue 與 PR。在提 PR 之前請:
-
-- 跑一遍 `npx tsc --noEmit` 與 `npm run svelte-check`
-- 至少在一個行動端(iOS 或 Android)測一下 ——「行動端不打折」是認真的
-- 改動較大的話,先開 Issue 對齊方向
+歡迎 Issue 和 PR。程式碼變更請執行 `npm test`、`npx tsc --noEmit`、`npm run svelte-check` 和 `npm run build`；影響應用使用的變更，還應至少在一個行動平台上驗證。較大變更請先開 Issue 對齊方向。
 
 ## 🙏 致謝
 
-最初衍生自 [omarshahine/obsidian-chat](https://github.com/omarshahine/obsidian-chat)(同為 MIT)—— 原始版權資訊已保留於 `LICENSE` 中。Chatting with AI 目前是一個獨立專案,擁有自己的路線圖 —— 主要的重寫包括 agent loop、行動端適配、ChatGPT 帳號登入,以及選取作用域功能。
+最初衍生自 [omarshahine/obsidian-chat](https://github.com/omarshahine/obsidian-chat)（MIT），原版權資訊保留在 `LICENSE` 中。Chatting with AI 現在是獨立專案，擁有自己的 agent loop、行動裝置支援、ChatGPT 帳號連線和筆記庫工作流程。
 
-## 📄 授權
+感謝 [Thomas Schierl](https://github.com/thomas0schierl) 對聊天持久化、渲染、筆記工具和回歸測試框架的貢獻。
+
+## 📄 授權條款
 
 [MIT](../../LICENSE)。
 
 ---
 
-作者:[Yuxiao (o1xhack)](https://github.com/o1xhack) · [app.o1xhack.com](https://app.o1xhack.com)
+作者：[Yuxiao (o1xhack)](https://github.com/o1xhack) · [app.o1xhack.com](https://app.o1xhack.com)

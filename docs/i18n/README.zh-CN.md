@@ -7,7 +7,7 @@
 <br>
 [![GitHub Sponsors](https://img.shields.io/badge/GitHub%20Sponsors-o1xhack-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/o1xhack)
 
-**一个 agentic 的 AI 助手,常驻你的 Obsidian 库 —— 手机、平板、桌面体验一致。**
+**移动端优先的 AI 助手，通过对话阅读、修改和整理你的 Obsidian 笔记库。**
 
 > 🌐 [English](../../README.md) · **简体中文** · [繁體中文](README.zh-TW.md) · [日本語](README.ja.md)
 
@@ -19,73 +19,74 @@
 
 ---
 
-## ✨ 为什么用它?
+## ✨ 用对话完成笔记里的工作
 
-- **三个 provider,自己挑** —— Anthropic API、OpenAI API,或者直接用你的 ChatGPT 账号登录。不搞一堆半成品 provider 的市场。
-- **14 个 vault 原生工具** —— 读、改、搜索、创建、重命名、frontmatter、backlinks 全覆盖。从想法到改动文件,不用离开聊天框。
-- **手机端不打折** —— 聊天和笔记工具使用兼容手机的请求方式；桌面支持浏览器登录，手机当前使用设备验证码登录。
-- **选区作用域** —— 在笔记里选中一段文字发到聊天里,助手只在选区内动手。
-- **密钥进操作系统钥匙串** —— 绝不写进 `data.json`,不会被同步到别的设备。
+Chatting with AI 把一句话变成 Obsidian 里的实际操作：查找相关笔记、修改草稿、整理项目，或调整 Canvas。核心能力分为六组：
 
-## 🎬 一句话,自己调一串工具
+- 📱 **移动端优先，轻量使用** — 手机、平板和桌面都能用，无需建立笔记库索引或部署独立后端。
+- 🧰 **能动手的笔记助手** — 通过 22 个内置工具搜索和修改笔记、整理文件与属性、查看链接、操作 Canvas、读取网页。
+- 📎 **由你选择任务上下文** — 使用当前笔记、把修改限制在选区、通过 `@` 或 `[[` 引用文件，并带上图片、PDF 和 Office 文档。
+- 🧩 **可复用的个人工作流** — 用 `AGENTS.md` 说明笔记库规则，用 Skills 保存常用任务，也能通过 `/name` 直接调用。
+- 👀 **看得见、可撤销的改动** — 跟随修改定位到笔记段落或 Canvas 卡片，查看执行步骤，并在本次会话的快照仍可用时撤销某次回答的改动。
+- 💬 **独立且可继续的对话** — 为不同任务保留命名会话，重启后接着聊，也能编辑之前的消息、重新生成回答。
 
-你只问一次,助手自己决定调哪些工具:
+支持 **Anthropic API**、**OpenAI API** 和 **ChatGPT 账号登录**三种连接方式，沿用你已有的 AI 使用习惯。
 
-```
-你: 把 /Books 下面所有缺少 `rating` 属性的笔记都加上 `rating: ?`。
+## 🎬 可以拿它做什么
 
-助手
-  → search_vault("/Books")               → 12 个文件
-  → get_properties("Books/Sapiens.md")   → 已有 rating
-  → get_properties("Books/Hail Mary.md") → 没有 rating
-  → set_properties("Books/Hail Mary.md", { rating: "?" })
-  → ... (再来 5 次)
+### 在笔记、文件和 Canvas 之间完成工作
 
-  搞定 —— 给 6 个笔记加上了 `rating: ?`:
-  - Books/Hail Mary.md
-  - Books/Klara and the Sun.md
-  - ...
-```
+直接用自然语言提要求。助手会选择工具、阅读相关资料，再在笔记库里执行操作。
 
-策略很简单:先读再改、能小改不大改、用户确认过的事不再问第二次。
+> 找出 Books 文件夹里缺少评分的笔记，加上 `rating: ?`。
+>
+> 对比这几篇会议记录，把决定整理成项目计划。
+>
+> 把 Canvas 上的想法分组，连接相关卡片。
 
-## 🎯 选区作用域
+按内容、标签或属性查找笔记；检查入链、出链和未链接提及；读取和编辑 Canvas 卡片及连线；查看库内图片，并把网页读成文本。
 
-在任意笔记里选中一段文字,右键 → **Send selection to Chat**。选区会以 pill 形式出现在输入框上方,助手只在选区内动手 —— 文档的其他部分一字节都不会变。
+### 为每个任务提供合适的上下文
 
-```
-[ pill: "...开头有点拖沓,而且..."  ✕ ]
+从当前笔记开始，或输入 `@` / `[[` 引用指定文件。通过输入框或粘贴附加图片、PDF、Word、Excel、PowerPoint 和文本文件。Canvas 可以提供结构大纲，也能由助手查看画面布局。
 
-你: 收紧一下 —— 别丢我的语气
-```
+只想改一段时，选中文字并选择 **Send selection to chat**。工具会把对该笔记的直接编辑限制在选区内；其他笔记仍可编辑，重命名其他文件时，Obsidian 也仍可能更新这里的链接。
 
-助手用作用域到选区文本的查找替换。选区之外的内容原封不动。
+### 让助手遵循你的工作方式
 
-## 🛠️ 14 个 vault 原生工具
+根目录的 `AGENTS.md` 定义整个库的规则；某个文件夹中的 `AGENTS.md` 会在对话首次涉及该目录时补充局部规则。在库内 `Skills` 文件夹中保存可复用任务，每个任务包含 `SKILL.md`，还可以带模板和示例。助手能按任务加载相应技能，你也可以输入 `/` 主动选择。
 
-| 分组 | 工具 | 用途 |
+Skills 沿用 Claude Code / Codex 的文件夹格式。助手可以读取说明和配套文件，但不会执行其中的脚本。
+
+### 检查改动，继续对话
+
+**Follow the AI's edits** 会定位到修改的笔记段落或 Canvas 卡片，同时保留聊天输入焦点。完成的工具步骤折叠成一行，需要时展开。每次回答的 **Undo** 可以还原记录下来的编辑、创建、重命名和删除；如果文件之后又被修改，会先询问。撤销快照有容量限制且仅保存在内存里，重启或快照过期后不能再撤销。
+
+可以新建、切换、重命名和删除独立会话，每个会话只向模型发送自己的聊天记录，重启 Obsidian 后也能继续。还支持编辑历史消息、复制回答和重新生成最后一次回答。编辑或重新生成不会撤销已经发生的文件改动。
+
+回答支持 Markdown、表格、双链和数学公式。向上阅读旧消息时不会被强制拉回底部，需要时可以一键回到最新回答。
+
+## ⚙️ 三种连接方式
+
+| 连接方式 | 需要什么 | 如何使用 |
 |---|---|---|
-| **读取** | `read_document`、`read_file`、`search_vault`、`list_files`、`get_backlinks`、`get_properties`、`get_current_datetime` | 打开任意笔记或文件;按文件名和内容搜索;浏览库结构;查找 backlinks;读取 YAML frontmatter;拿到你时区下的当前时间。 |
-| **写入** | `edit_document`、`create_file`、`set_properties` | 精准查找替换 / 插入 / 整段替换;创建新笔记(父目录自动创建);安全合并或移除 YAML frontmatter。 |
-| **管理** | `rename_file`、`delete_file`、`open_document`、`ask_user` | 重命名或移动(链接自动更新);移到回收站(尊重你的回收站设置);在编辑器里打开文件;不清楚的时候反过来问你。 |
+| **Anthropic** | Anthropic API key | 使用 Claude 模型；思考和网页搜索能力取决于模型。 |
+| **OpenAI** | OpenAI API key | 通过 Responses API 使用 OpenAI 模型；推理和网页搜索能力取决于模型。 |
+| **ChatGPT 账号** | 具备 Codex 访问权限的 ChatGPT 套餐 | 登录账号，使用该账号可访问的 Codex 模型。 |
 
-## ⚙️ 三个 Provider
+模型列表从对应服务或账号获取，缓存 24 小时，也可以随时手动刷新；服务提供相关信息时，思考等级跟随模型目录。实际可用模型及权限取决于服务和账号。
 
-| Provider | 认证方式 | 默认模型 | 说明 |
-|---|---|---|---|
-| **Anthropic** | API key | Claude Sonnet 4.6 | 自适应思考、网络搜索、prompt 缓存。 |
-| **OpenAI** | API key | Codex 5.3 | Responses API、推理、网络搜索。 |
-| **ChatGPT 账号** | 登录 ChatGPT | GPT-5.5 | 用你的 ChatGPT 套餐代替 OpenAI API key。 |
-
-> **关于 ChatGPT 账号登录。** 这个 provider 用你的 ChatGPT 账号登录,请求走的是 ChatGPT/Codex 后端(不是 `api.openai.com`),需要一份开通了 Codex 的 ChatGPT 套餐。可用模型对齐 Codex CLI 的目录。
+桌面端 ChatGPT 登录会打开浏览器并自动返回。桌面也可用设备验证码登录，手机当前采用这一方式。凭据按设备保存，同步笔记库不会让另一台设备自动登录。
 
 ## 🚀 快速上手
 
+需要 **Obsidian 1.11.4 或更新版本**，支持桌面、iOS 和 Android。
+
 1. 打开 **设置 → 社区插件 → 浏览**。
-2. 搜索 **Chatting with AI**。
-3. 点击 **安装**,然后点击 **启用**。
-4. **设置 → Chatting with AI** → 选 provider,粘贴 API key(或者点 **Connect ChatGPT**)。
-5. 从侧边栏图标或命令面板打开聊天。
+2. 搜索 **Chatting with AI**，点击 **安装**，再点击 **启用**。
+3. 打开 **设置 → Chatting with AI**，选择连接方式。
+4. 填入 API key，或连接 ChatGPT 账号。
+5. 从侧边栏图标或命令面板打开聊天，开始处理笔记。
 
 ## 📦 安装
 
@@ -137,78 +138,29 @@ ln -s "$(pwd)" /path/to/vault/.obsidian/plugins/chatting-with-ai
 
 </details>
 
-## 🧭 设计原则
+## 🔐 隐私与控制
 
-| 原则 | 含义 |
-|---|---|
-| **移动端不是事后补丁** | 聊天与笔记工具支持手机，不依赖 Node 模块。具体桌面及 iPhone 真机验收范围见 `docs/phase1-review.md`。 |
-| **三个靠谱 provider** | Anthropic + OpenAI 保稳定,ChatGPT 账号给那些不想配 API key 的人。 |
-| **密钥进钥匙串** | API key 和 OAuth 凭据都走 Obsidian SecretStorage。绝不进 `data.json`,所以也不会被 Obsidian Sync 同步到别的设备。 |
-| **不做向量索引** | 线性搜索 + 上限保护。可预期、无后台任务、手机内存压力小。 |
-| **会话会保留** | 聊天历史在 Obsidian 重启后还在。本地 `chat-state.json`,不同步。 |
-| **手机上靠右滑入** | 从右边滑入侧栏,下面的文档不被遮挡。 |
+- **不在后台上传或索引整个库。** 消息、当前笔记上下文、引用或附加的文件、加载的规则及工具读取的资料，会按对话需要发送给选定的模型服务。这是云端模型助手，不是设备端本地模型。
+- **凭据使用 Obsidian SecretStorage。** API key 和 ChatGPT 登录凭据不写入插件的 `data.json`，每台设备需要单独连接。
+- **聊天历史保存在笔记库的插件目录。** 命名会话写入 `chat-state.json`。插件没有聊天同步服务，这些文件是否到达其他设备取决于你的同步设置。附件数据有保留上限，较旧附件可能只显示名称。
+- **改动直接发生在笔记库里。** 选区限制针对选中笔记的直接编辑；撤销依赖当前可用的快照，长期恢复请使用日常备份或版本历史。
+- **网页与附件属于外部输入。** 读取网页会使用本机网络，包括本机能访问的局域网地址。不要把网页或文件里隐藏的指令当作可信规则。附件和请求设有容量限制，以控制设备内存和请求大小。
 
-## 🗺️ 路线图
+附件限制、不同模型对 PDF / Office 的处理方式、完整工具列表、设置和恢复说明见 **[使用指南（英文）](../user-guide.md)**。已记录的验证范围见[桌面与 iPhone 验收记录](../phase1-review.md)。
 
-- [x] 三个 provider(Anthropic、OpenAI、ChatGPT 账号)
-- [x] 14 个 vault 原生工具
-- [x] iOS / Android 体验一致
-- [x] 选区作用域
-- [x] 上架 Obsidian 社区插件市场
-- [ ] 多会话历史 + 归档/搜索
-- [ ] Provider 支持的图片附件
-- [ ] 自动跟进上游新发布的 provider 模型
+## 🗺️ 接下来
 
-有想法?直接开 issue。
-
-## ❓ 常见问题
-
-<details>
-<summary><b>我的笔记会不会被上传到别处?</b></summary>
-
-只发当前这一轮助手需要的内容。你提问的时候,助手决定调哪些工具 —— `read_document`、`search_vault` 等等 —— 这些调用拿到的内容(加上当前笔记的上下文)会发给你选的 provider。后台不会做任何上传。**不存在向量索引。**
-
-</details>
-
-<details>
-<summary><b>移动端真的能用吗?</b></summary>
-
-可以。请求通过 Obsidian 的 `requestUrl()`，手机不加载 Node 模块。桌面 ChatGPT 可用浏览器回调登录，手机当前使用设备验证码登录。登录凭据按设备保存，同步库不会让另一台设备自动登录。
-
-</details>
-
-<details>
-<summary><b>用 ChatGPT 账号登录是免费的吗?</b></summary>
-
-它复用你已有的 ChatGPT 套餐(Plus、Pro、Team、Enterprise)—— 没有额外计费。你需要一份开通了 Codex 的 ChatGPT 套餐。插件不会请求 `api.openai.com`,而是请求 Codex CLI 用的同一套后端。
-
-</details>
-
-<details>
-<summary><b>能不能加 X provider?</b></summary>
-
-大概率不会 —— 把 provider 列表保持很小是个明确的取舍。两家 API provider 覆盖了主要的 API 生态,ChatGPT 账号登录覆盖了「我只有一份 ChatGPT 套餐」的情况。再加更多就要在手机端验证更多组合。
-
-</details>
-
-<details>
-<summary><b>聊天历史存在哪里?会同步吗?</b></summary>
-
-存在本地 `<vault>/.obsidian/plugins/chatting-with-ai/chat-state.json`。**Obsidian Sync 默认排除插件数据文件**,不会被同步。API key 通过 SecretStorage 进操作系统钥匙串,同样不同步。
-
-</details>
+命名会话、图片和文档附件、模型目录刷新、Canvas、笔记库规则和 Skills 均已提供。**历史会话的归档与搜索仍在路线图中。** 每个版本的变化见[发布记录](https://github.com/o1xhack/obsidian-chatting/releases)，也欢迎[提交 Issue](https://github.com/o1xhack/obsidian-chatting/issues) 反馈。
 
 ## 🤝 参与贡献
 
-欢迎提 Issue 和 PR。在提 PR 之前请:
-
-- 跑一遍 `npx tsc --noEmit` 和 `npm run svelte-check`
-- 至少在一个移动端(iOS 或 Android)上测一下 —— 「移动端不打折」是认真的
-- 改动较大的话,先开 Issue 对齐方向
+欢迎 Issue 和 PR。代码改动请运行 `npm test`、`npx tsc --noEmit`、`npm run svelte-check` 和 `npm run build`；影响应用使用的改动，还应至少在一个移动平台上验证。较大改动请先开 Issue 对齐方向。
 
 ## 🙏 致谢
 
-最初衍生自 [omarshahine/obsidian-chat](https://github.com/omarshahine/obsidian-chat)(同为 MIT)—— 原版权信息已保留在 `LICENSE` 中。Chatting with AI 现在是一个独立项目,有自己的路线图 —— 主要的重写包括 agent loop、移动端适配、ChatGPT 账号登录,以及选区作用域功能。
+最初衍生自 [omarshahine/obsidian-chat](https://github.com/omarshahine/obsidian-chat)（MIT），原版权信息保留在 `LICENSE` 中。Chatting with AI 现在是独立项目，拥有自己的 agent loop、移动端支持、ChatGPT 账号连接和笔记库工作流。
+
+感谢 [Thomas Schierl](https://github.com/thomas0schierl) 对聊天持久化、渲染、笔记工具和回归测试框架的贡献。
 
 ## 📄 许可证
 
@@ -216,4 +168,4 @@ ln -s "$(pwd)" /path/to/vault/.obsidian/plugins/chatting-with-ai
 
 ---
 
-作者:[Yuxiao (o1xhack)](https://github.com/o1xhack) · [app.o1xhack.com](https://app.o1xhack.com)
+作者：[Yuxiao (o1xhack)](https://github.com/o1xhack) · [app.o1xhack.com](https://app.o1xhack.com)
