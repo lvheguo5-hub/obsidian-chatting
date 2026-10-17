@@ -232,7 +232,8 @@ export class AgentLoop {
     try {
       const prospective: UnifiedMessage[] = [...this.messages, { role: "user", content: "", turnId }];
       const retained = prospective.length > MAX_CONVERSATION_LENGTH ? trimHistory(prospective, KEEP_RECENT) : this.messages;
-      const rules = await folderInstructionContext(this.app, mentioned?.instructionPaths ?? [], instructionsGiven(retained));
+      const paths = [...mentioned?.instructionPaths ?? [], ...selection ? [selection.filePath] : []];
+      const rules = await folderInstructionContext(this.app, paths, instructionsGiven(retained));
       if (isStopped()) return;
       instructionSources = rules.sources;
       if (rules.text) contextPrefix = `${rules.text}\n\n${contextPrefix}`;

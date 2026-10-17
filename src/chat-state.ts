@@ -23,6 +23,10 @@ export interface ConversationRecord {
   id: string;
   /** The first user message (shortened) until renamed. */
   title: string;
+  /** Original automatic title survives pruning, including while a custom name is shown. */
+  automaticTitle?: string;
+  /** null: the original source is no longer identifiable in retained history. */
+  titleSourceTurnId?: string | null;
   /** Set when the user renamed the conversation; the title then stays. */
   customTitle: boolean;
   createdAt: number;
@@ -89,10 +93,18 @@ export function migrateChatState(value: unknown): Pick<ChatState, "activeConvers
     .map((item): ConversationRecord => {
       const chatHistory = arrayOf<ChatHistoryEntry>(item.chatHistory).map(compactSelection);
       const customTitle = item.customTitle === true && typeof item.title === "string";
+      const derived = conversationTitle(chatHistory);
+      const automaticTitle = typeof item.automaticTitle === "string" && item.automaticTitle.trim() ? item.automaticTitle
+        : !customTitle && typeof item.title === "string" && item.title.trim() ? item.title : derived;
+      const first = chatHistory.find(entry => entry.type === "user");
+      const titleSourceTurnId = typeof item.titleSourceTurnId === "string" ? item.titleSourceTurnId
+        : item.titleSourceTurnId === null || automaticTitle !== derived ? null : first?.turnId;
       const notes = arrayOf<unknown>(item.notes).filter((note): note is string => typeof note === "string");
       return {
         id: item.id as string,
-        title: customTitle ? item.title as string : conversationTitle(chatHistory),
+        title: customTitle ? item.title as string : automaticTitle,
+        automaticTitle,
+        ...(titleSourceTurnId !== undefined ? { titleSourceTurnId } : {}),
         customTitle,
         createdAt: typeof item.createdAt === "number" ? item.createdAt : 0,
         updatedAt: typeof item.updatedAt === "number" ? item.updatedAt : 0,
@@ -131,6 +143,19 @@ export function conversationTitle(entries: ChatHistoryEntry[]): string {
   return text.length > TITLE_LENGTH ? `${text.slice(0, TITLE_LENGTH - 1).trimEnd()}…` : text;
 }
 
+/** Refresh only while the original first turn is present (or after an explicit reset). */
+export function updateConversationTitle(conversation: ConversationRecord): void {
+  const first = conversation.chatHistory.find(entry => entry.type === "user");
+  if (!first) {
+    conversation.automaticTitle = NEW_CHAT_TITLE;
+    delete conversation.titleSourceTurnId;
+  } else if (conversation.titleSourceTurnId === undefined || first.turnId === conversation.titleSourceTurnId) {
+    conversation.automaticTitle = conversationTitle(conversation.chatHistory);
+    conversation.titleSourceTurnId = first.turnId ?? null;
+  }
+  if (!conversation.customTitle) conversation.title = conversation.automaticTitle ?? conversationTitle(conversation.chatHistory);
+}
+
 /** Nothing said yet. */
 export function isEmptyConversation(conversation: ConversationRecord): boolean {
   return conversation.chatHistory.length === 0 && conversation.agentMessages.length === 0;
@@ -143,8 +168,10 @@ export function newestFirst(conversations: ConversationRecord[]): ConversationRe
 
 /** A conversation as saved: capped, image and file data only in the API history. */
 export function savedConversation(conversation: ConversationRecord): ConversationRecord {
+  const titled = { ...conversation };
+  updateConversationTitle(titled);
   return {
-    ...conversation,
+    ...titled,
     chatHistory: withoutImageData(conversation.chatHistory.slice(-SAVED_ENTRIES)),
     agentMessages: withoutOldToolImages(trimHistory(conversation.agentMessages, MAX_CONVERSATION_LENGTH)),
   };

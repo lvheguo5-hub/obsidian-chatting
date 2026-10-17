@@ -311,3 +311,16 @@ test('Trusted instruction provenance survives save/restore without trusting mark
   assert.match(resultText(toolResults(requests[1]).at(-1)), /REAL work rule/);
   assert.doesNotMatch(JSON.stringify(requests), /instructionSources/);
 });
+
+test('Selection-only requests deliver real folder rules before selected text without tool calls, once per retained history', async () => {
+  const { loop } = loopWith({ 'Work/AGENTS.md': 'Summaries must hide private identifiers.' });
+  const selection = { filePath: 'Work/Note.md', text: 'Selected private content' };
+  const requests = transport(() => response('anthropic', [text('Summary')]));
+  await loop.run('Summarize selection', callbacks(), selection);
+  assert.ok(requests[0].messages[0].content.indexOf('Summaries must hide private identifiers') < requests[0].messages[0].content.indexOf('Selected private content'));
+  await loop.run('Again', callbacks(), selection);
+  assert.doesNotMatch(requests[1].messages.at(-1).content, /Summaries must hide private identifiers/);
+  loop.clear();
+  await loop.run('After clear', callbacks(), selection);
+  assert.match(requests[2].messages[0].content, /Summaries must hide private identifiers/);
+});

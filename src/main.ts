@@ -19,6 +19,7 @@ import type { ChangeLog } from "./tools/undo";
 import {
   CHAT_STATE_VERSION,
   conversationTitle,
+  updateConversationTitle,
   isEmptyConversation,
   migrateChatState,
   newConversation,
@@ -402,7 +403,7 @@ export default class ChatPlugin extends Plugin {
     if (!conversation) return;
     const name = title.replace(/\s+/g, " ").trim();
     conversation.customTitle = name !== "";
-    conversation.title = name || conversationTitle(conversation.chatHistory);
+    conversation.title = name || conversation.automaticTitle || conversationTitle(conversation.chatHistory);
     void this.saveChatHistory();
   }
 
@@ -424,7 +425,7 @@ export default class ChatPlugin extends Plugin {
   touchConversation(): void {
     const conversation = this.activeConversation;
     conversation.updatedAt = Date.now();
-    if (!conversation.customTitle) conversation.title = conversationTitle(conversation.chatHistory);
+    updateConversationTitle(conversation);
   }
 
   /** Switches the agent to `next`; an empty conversation left behind is dropped. */

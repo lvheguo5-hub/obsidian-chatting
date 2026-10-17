@@ -408,7 +408,7 @@ test('A file the API history no longer holds stays a name; its turn can\'t be ed
     version: api.chatState.CHAT_STATE_VERSION,
     activeConversationId: 'c1',
     conversations: [{
-      id: 'c1', title: 'Old', customTitle: false, createdAt: 1, updatedAt: 1,
+      id: 'c1', title: 'Old.pdf', customTitle: false, createdAt: 1, updatedAt: 1,
       chatHistory: [
         { type: 'user', text: '', turnId: 't1', attachedFiles: [{ id: 'gone', fileName: 'Old.pdf', mediaType: 'application/pdf', sizeBytes: 3, data: '' }] },
         { type: 'assistant', text: 'Old answer' },

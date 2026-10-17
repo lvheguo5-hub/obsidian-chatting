@@ -158,7 +158,7 @@ test('The active conversation is restored on load, with its own API history; the
   const written = writes.at(-1);
   assert.equal(written.activeConversationId, 'b');
   assert.deepEqual(written.conversations.map(c => c.id), ['a', 'b']);
-  assert.deepEqual(written.conversations[0], saved.conversations[0]);
+  assert.deepEqual(written.conversations[0], { ...saved.conversations[0], automaticTitle: 'Topic A', titleSourceTurnId: 'a-t' });
   assert.deepEqual(texts(written.conversations[1].chatHistory), ['Topic B', 'Topic B answer', 'Back to B', 'A1']);
   assert.equal(written.conversations[1].agentMessages.length, 4);
 });
@@ -183,12 +183,12 @@ test('Titles: first user message, one line, at most 40 characters; a renamed tit
   assert.equal(conversationTitle([{ type: 'assistant', text: 'Hi' }]), NEW_CHAT_TITLE);
   assert.equal(conversationTitle([]), NEW_CHAT_TITLE);
 
-  // Saved titles: an automatic one is taken from the history again, a custom one is kept.
+  // Saved titles survive history caps; a custom name remains distinct.
   const state = migrateChatState(version3('a', [
     record('a', 'Question', 1, { title: 'Stale title' }),
     record('b', 'Question', 2, { title: 'My name', customTitle: true }),
   ]));
-  assert.deepEqual(state.conversations.map(c => [c.title, c.customTitle]), [['Question', false], ['My name', true]]);
+  assert.deepEqual(state.conversations.map(c => [c.title, c.customTitle]), [['Stale title', false], ['My name', true]]);
 });
 
 test('Each conversation is saved with its own caps (100 entries, 80 API messages); empty ones only while active', async () => {
@@ -582,4 +582,38 @@ test('The New chat command opens the chat on a new conversation; an empty one is
   await plugin.newChat();
   assert.equal(plugin.activeConversationId, earlier);
   assert.equal(globalThis.__notices.length, 1);
+});
+
+test('Automatic titles survive repeated capped saves, reloads, appends and temporary custom names', async () => {
+  const { plugin, view, writes } = await setup('anthropic');
+  answering('anthropic');
+  for (let i = 0; i < 61; i++) await view.handleUserMessage(`Original topic ${i}`, null);
+  await plugin.saveChatHistory();
+  const state = writes.at(-1);
+  assert.notEqual(state.conversations[0].chatHistory[0].text, 'Original topic 0');
+  const restored = await setup('anthropic', state);
+  assert.equal(restored.plugin.activeConversation.title, 'Original topic 0');
+  await restored.view.handleUserMessage('Later follow-up', null);
+  assert.equal(restored.plugin.activeConversation.title, 'Original topic 0');
+  restored.view.renameConversation(restored.plugin.activeConversationId, 'Custom name');
+  await restored.plugin.saveChatHistory();
+  const again = await setup('anthropic', restored.writes.at(-1));
+  assert.equal(again.plugin.activeConversation.title, 'Custom name');
+  again.view.renameConversation(again.plugin.activeConversationId, '');
+  assert.equal(again.plugin.activeConversation.title, 'Original topic 0');
+  // Editing the first retained turn cannot rename a pruned original source.
+  await again.view.editMessage(again.plugin.chatHistory.find(row => row.type === 'user').turnId, 'Edited retained turn');
+  assert.equal(again.plugin.activeConversation.title, 'Original topic 0');
+  again.view.clearConversation();
+  await again.view.handleUserMessage('New topic after clear', null);
+  assert.equal(again.plugin.activeConversation.title, 'New topic after clear');
+});
+
+test('Legacy capped history keeps its stored automatic title without inventing a retained source', async () => {
+  const old = record('capped', 'Retained Q10', 1, { title: 'Original Q0' });
+  const { plugin, view } = await setup('anthropic', version3('capped', [old]));
+  assert.equal(plugin.activeConversation.titleSourceTurnId, null);
+  answering('anthropic');
+  await view.handleUserMessage('Next', null);
+  assert.equal(plugin.activeConversation.title, 'Original Q0');
 });

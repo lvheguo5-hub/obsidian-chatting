@@ -194,6 +194,7 @@
   let nextId = 0;
   /** A turn is running (set by the view); regenerate waits for it. */
   let busy = $state(false);
+  let composerLocked = $state(false);
   let attachmentLoading = $state(false);
   const attachmentPreparation = new AttachmentPreparation(loading => { attachmentLoading = loading; });
   onDestroy(() => attachmentPreparation.cancel());
@@ -457,6 +458,10 @@
     busy = value;
   }
 
+  export function setComposerLocked(value: boolean): void {
+    composerLocked = value;
+  }
+
   export function clearMessages(): void {
     attachmentPreparation.cancel();
     messages = [];
@@ -530,7 +535,7 @@
   }
 
   function handleSend(): void {
-    if (!inputEnabled || attachmentLoading) return;
+    if (!inputEnabled || attachmentLoading || composerLocked) return;
     const text = inputText.trim();
     if (!text && attachments.length === 0 && fileAttachments.length === 0) return;
 
@@ -1407,9 +1412,9 @@
       <button
         class="ochatting-send-btn"
         onclick={handleSend}
-        disabled={attachmentLoading}
+        disabled={attachmentLoading || composerLocked}
         aria-label="Send message"
-        title={attachmentLoading ? "Preparing attachments..." : "Send message"}
+        title={composerLocked ? "Undo in progress..." : attachmentLoading ? "Preparing attachments..." : "Send message"}
       >
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
       </button>

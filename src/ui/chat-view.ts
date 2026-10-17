@@ -84,6 +84,7 @@ interface ChatContainerApi extends Record<string, unknown> {
   cancelAskUser(): void;
   setInputEnabled(enabled: boolean): void;
   setBusy(busy: boolean): void;
+  setComposerLocked?(locked: boolean): void;
   clearMessages(): void;
   focus(): void;
   setModel(name: string): void;
@@ -392,10 +393,13 @@ export class ObsidianChatView extends ItemView {
     const originalMessages = this.plugin.agent.exportMessages(Number.MAX_SAFE_INTEGER);
     const conversation = this.plugin.activeConversation;
     const originalTitle = conversation.title;
+    const originalAutomaticTitle = conversation.automaticTitle;
+    const originalTitleSource = conversation.titleSourceTurnId;
     const originalUpdatedAt = conversation.updatedAt;
     const originalNotes = conversation.notes ?? [];
     this.plugin.agent.cutBeforeTurn(turnId);
     this.plugin.chatHistory = history.slice(0, index);
+    if (history[index].turnId === conversation.titleSourceTurnId) delete conversation.titleSourceTurnId;
     const replacementHistory = this.plugin.chatHistory;
     const rollback = () => {
       if (this.rollbackResend !== rollback) return;
@@ -403,6 +407,8 @@ export class ObsidianChatView extends ItemView {
       this.plugin.agent.importMessages(originalMessages);
       this.plugin.chatHistory = history;
       conversation.title = originalTitle;
+      conversation.automaticTitle = originalAutomaticTitle;
+      conversation.titleSourceTurnId = originalTitleSource;
       conversation.updatedAt = originalUpdatedAt;
       if (originalNotes.length) conversation.notes = [...new Set([...originalNotes, ...conversation.notes ?? []])];
       // Preserve the rejection explanation alongside the original conversation.
@@ -441,6 +447,7 @@ export class ObsidianChatView extends ItemView {
     files: FileAttachment[] = []
   ): Promise<void> {
     if (this.running || this.undoing) {
+      if (this.undoing) this.chatContainer?.restoreDraft?.(text, selection, images, files);
       new Notice("Please wait for the current response to complete.");
       return;
     }
@@ -643,7 +650,10 @@ export class ObsidianChatView extends ItemView {
       return;
     }
     const app = this.plugin.app;
+    const chat = this.chatContainer;
     this.undoing = true;
+    chat?.setComposerLocked?.(true);
+    chat?.setBusy(true);
     try {
       const changed = await log.conflicts(app);
       if (changed.length && !await confirmUndo(app, changed)) return;
@@ -666,6 +676,10 @@ export class ObsidianChatView extends ItemView {
       new Notice(`Couldn't undo changes: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       this.undoing = false;
+      if (this.chatContainer === chat) {
+        chat?.setComposerLocked?.(false);
+        chat?.setBusy(false);
+      }
     }
   }
 

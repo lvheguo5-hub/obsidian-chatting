@@ -204,7 +204,9 @@ function fakeChat() {
     setChangesKept(turnId) { const row = chat.shown.find(m => (m.type === 'changes' || m.type === 'steps') && m.turnId === turnId); if (row) row.changesState = 'kept'; },
     setChangesUndone(turnId) { const row = chat.shown.find(m => m.type === 'changes' && m.turnId === turnId); if (row) row.changesState = 'undone'; },
     showThinking() {}, hideThinking() {}, cancelAskUser() {},
-    setInputEnabled() {}, setBusy() {}, folded: [], foldTurn(turnId) { chat.folded.push(turnId); }, clearMessages() { chat.shown = []; }, focus() {}, setModel() {}, setTitle() {},
+    restoreDraft(text, selection, images, files) { chat.draft = { text, selection, images, files }; },
+    setComposerLocked(value) { chat.composerLocked = value; },
+    setInputEnabled() {}, setBusy(value) { chat.busy = value; }, folded: [], foldTurn(turnId) { chat.folded.push(turnId); }, clearMessages() { chat.shown = []; }, focus() {}, setModel() {}, setTitle() {},
     setSelection() {}, getSelection: () => null,
   };
   return chat;
@@ -504,4 +506,30 @@ test('An oversized edit succeeds but its UI row and tool result explicitly repor
   await view.undoChanges(row.turnId);
   assert.equal(files.get('Plan.md'), current);
   assert.equal(row.undone, undefined);
+});
+
+test('A pending undo locks sending without clearing the composer and restores a raced submission', async () => {
+  const { plugin, view, files, chat, app } = await chatSetup();
+  const requests = editingModel();
+  await view.handleUserMessage('Rewrite my plan', null);
+  const row = changesRow(plugin);
+  const read = app.vault.cachedRead;
+  let release;
+  app.vault.cachedRead = async file => new Promise(resolve => { release = () => resolve(read(file)); });
+  const pending = view.undoChanges(row.turnId);
+  await tick();
+  assert.equal(chat.composerLocked, true);
+  assert.equal(chat.busy, true);
+  const selection = { filePath: 'Plan.md', text: 'Draft selection' };
+  const images = [{ id: 'image', data: 'YQ==' }];
+  const attachments = [{ id: 'file', text: 'Draft file' }];
+  await view.handleUserMessage('Keep my draft', selection, images, attachments);
+  assert.deepEqual(chat.draft, { text: 'Keep my draft', selection, images, files: attachments });
+  assert.equal(requests.length, 2);
+  release();
+  await pending;
+  assert.equal(chat.composerLocked, false);
+  assert.equal(chat.busy, false);
+  assert.equal(files.get('Plan.md'), 'My plan');
+  assert.equal(chat.draft.text, 'Keep my draft');
 });
