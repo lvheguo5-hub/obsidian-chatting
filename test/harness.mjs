@@ -26,7 +26,7 @@ export const bundled = await build({
     export { startBrowserLogin } from './src/auth/chatgptBrowserLogin';
     export { ChatGPTOAuthStore } from './src/auth/chatgptOAuthStore';
     export { ChatGPTDeviceLoginModal } from './src/settings';
-    export { selectionScope } from './src/main';
+    export { selectionScope, readingSelectionScope } from './src/main';
     export { normalizeMathMarkdown } from './src/ui/math-markdown';
     export * as toolLabels from './src/ui/tool-label';
     export { WEB_PAGE_CHARS } from './src/tools/web-page';
@@ -40,7 +40,7 @@ export const bundled = await build({
     export * as instructions from './src/agent/instructions';
     export * as showInView from './src/ui/show-in-view';
     export * as mentions from './src/ui/mentions';
-    export { TFile, TFolder } from 'obsidian';
+    export { TFile, TFolder, MarkdownView } from 'obsidian';
     export { ChangeLog } from './src/tools/undo';
     export { UndoConfirmModal } from './src/ui/undo-confirm';
     export { foldPlan } from './src/ui/fold-turn';
@@ -60,6 +60,7 @@ export const bundled = await build({
       export class App {}
       export class Plugin {}
       export class ItemView {}
+      export class MarkdownView {}
       export class Scope { constructor(parent) { this.parent = parent; this.keys = []; } register(modifiers, key, func) { this.keys.push({ modifiers, key, func }); } }
       export class Menu {}
       export const MarkdownRenderer = { render: async () => {} };

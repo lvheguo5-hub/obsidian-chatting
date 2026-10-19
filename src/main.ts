@@ -4,6 +4,7 @@ import {
   type MarkdownFileInfo,
   type Editor,
   Menu,
+  MarkdownView,
   TFile,
   type TAbstractFile,
   type App,
@@ -53,6 +54,23 @@ export function selectionScope(editor: Editor, text: string, filePath: string): 
   const from = editor.posToOffset(editor.getCursor("from"));
   const sourceText = editor.getValue().replace(/\r\n/g, "\n");
   return { text, filePath, from, occurrence: copiesBefore(sourceText, text, from), sourceText };
+}
+
+/**
+ * Text selected in a note's reading view, as a scope. The rendered text has
+ * no place in the source, so an edit finds it only where it occurs once.
+ */
+export function readingSelectionScope(app: App, selection: Selection | null): SelectionScope | null {
+  const text = selection?.toString().trim();
+  const node = selection?.anchorNode;
+  if (!text || !node) return null;
+  for (const leaf of app.workspace.getLeavesOfType("markdown")) {
+    const view = leaf.view;
+    if (view instanceof MarkdownView && view.file && view.getMode() === "preview" && view.previewMode.containerEl.contains(node)) {
+      return { text, filePath: view.file.path };
+    }
+  }
+  return null;
 }
 
 export default class ChatPlugin extends Plugin {
@@ -235,6 +253,18 @@ export default class ChatPlugin extends Plugin {
         }
       })
     );
+
+    // Reading view: no editor menu there (and no menu at all on a phone or
+    // tablet), so text selected there goes to the open chat once it settles.
+    let readingSelectionTimer: number | undefined;
+    this.registerDomEvent(document, "selectionchange", () => {
+      window.clearTimeout(readingSelectionTimer);
+      readingSelectionTimer = window.setTimeout(() => {
+        const scope = readingSelectionScope(this.app, document.getSelection());
+        if (scope) this.getChatView()?.setSelection(scope);
+      }, 400);
+    });
+    this.register(() => window.clearTimeout(readingSelectionTimer));
   }
 
   onunload(): void {

@@ -280,3 +280,27 @@ test('CRLF additions before a repeated selection relocate from the original edit
   assert.equal((await run(app, 'edit_document', { operation: 'find_replace', find: 'task', content: 'DONE' }, scope)).isError, false);
   assert.equal(files.get('Review.md'), 'intro\r\ntask\r\nheading\r\nDONE\r\n');
 });
+
+test('Text selected in a reading view is a scope of that note; elsewhere, or in an editing view, it isn\'t', () => {
+  const inside = { id: 'rendered text' };
+  const outside = { id: 'chat answer' };
+  const note = (path, mode) => Object.assign(new api.MarkdownView(), {
+    file: { path }, getMode: () => mode, previewMode: { containerEl: { contains: node => node === inside } },
+  });
+  const app = leaves => ({ workspace: { getLeavesOfType: type => type === 'markdown' ? leaves.map(view => ({ view })) : [] } });
+  const selected = (text, anchorNode) => ({ toString: () => text, anchorNode });
+  const reading = app([note('Draft.md', 'source'), note('Review.md', 'preview')]);
+
+  assert.deepEqual(api.readingSelectionScope(reading, selected('  crowded plan\n', inside)), { filePath: 'Review.md', text: 'crowded plan' });
+  assert.equal(api.readingSelectionScope(reading, selected('crowded plan', outside)), null);
+  assert.equal(api.readingSelectionScope(reading, selected('   ', inside)), null);
+  assert.equal(api.readingSelectionScope(reading, null), null);
+  assert.equal(api.readingSelectionScope(app([note('Review.md', 'source')]), selected('crowded plan', inside)), null);
+});
+
+test('A reading-view selection that occurs more than once in the note can\'t be edited', async () => {
+  const { app, files } = vault({ 'Review.md': NOTE });
+  const result = await run(app, 'edit_document', { path: 'Review.md', operation: 'find_replace', find: 'crowded', content: 'busy' }, { filePath: 'Review.md', text: 'crowded plan' });
+  assert.equal(result.isError, true);
+  assert.equal(files.get('Review.md'), NOTE);
+});
