@@ -73,6 +73,18 @@ export function readingSelectionScope(app: App, selection: Selection | null): Se
   return null;
 }
 
+/** Only clear the automatic pill, outside a handoff to the chat input. */
+export function shouldClearReadingSelection(
+  selection: Selection | null,
+  current: SelectionScope | null,
+  automatic: SelectionScope | null,
+  chatHasFocus: boolean,
+  sinceChatPointerDown: number,
+): boolean {
+  return automatic !== null && current === automatic && !selection?.toString()
+    && !chatHasFocus && sinceChatPointerDown > 1500;
+}
+
 export default class ChatPlugin extends Plugin {
   settings: ChatSettings = DEFAULT_SETTINGS;
   /** Shared agent loop that persists across view open/close cycles */
@@ -257,11 +269,31 @@ export default class ChatPlugin extends Plugin {
     // Reading view: no editor menu there (and no menu at all on a phone or
     // tablet), so text selected there goes to the open chat once it settles.
     let readingSelectionTimer: number | undefined;
+    let automaticSelection: SelectionScope | null = null;
+    let lastChatPointerDown = -Infinity;
+    this.registerDomEvent(document, "pointerdown", (evt) => {
+      if (this.getChatView()?.containerEl.contains(evt.target as Node | null)) {
+        lastChatPointerDown = Date.now();
+      }
+    }, true);
     this.registerDomEvent(document, "selectionchange", () => {
       window.clearTimeout(readingSelectionTimer);
       readingSelectionTimer = window.setTimeout(() => {
-        const scope = readingSelectionScope(this.app, document.getSelection());
-        if (scope) this.getChatView()?.setSelection(scope);
+        const view = this.getChatView();
+        if (!view) return;
+        const selection = document.getSelection();
+        const scope = readingSelectionScope(this.app, selection);
+        if (scope) {
+          view.setSelection(scope);
+          // Keep the component's identity, including Svelte's state proxy.
+          automaticSelection = view.getSelection();
+        } else if (shouldClearReadingSelection(
+          selection, view.getSelection(), automaticSelection,
+          view.containerEl.contains(document.activeElement), Date.now() - lastChatPointerDown,
+        )) {
+          view.clearSelection();
+          automaticSelection = null;
+        }
       }, 400);
     });
     this.register(() => window.clearTimeout(readingSelectionTimer));

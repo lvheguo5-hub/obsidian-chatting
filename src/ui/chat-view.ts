@@ -92,6 +92,7 @@ interface ChatContainerApi extends Record<string, unknown> {
   setTitle(title: string): void;
   setSelection(selection: SelectionScope): void;
   getSelection(): SelectionScope | null;
+  clearSelection(): void;
   setEnterSends(on: boolean): void;
   /** Ctrl/Cmd+Enter in the chat: sends from the chat input, saves from a message's edit box. */
   sendFromKeyboard(target: EventTarget | null): boolean;
@@ -291,6 +292,14 @@ export class ObsidianChatView extends ItemView {
   /** Set the selection scope and show the pill */
   setSelection(selection: SelectionScope): void {
     this.chatContainer?.setSelection(selection);
+  }
+
+  getSelection(): SelectionScope | null {
+    return this.chatContainer?.getSelection() ?? null;
+  }
+
+  clearSelection(): void {
+    this.chatContainer?.clearSelection();
   }
 
   /** Focus the input */

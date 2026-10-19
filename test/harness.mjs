@@ -26,7 +26,7 @@ export const bundled = await build({
     export { startBrowserLogin } from './src/auth/chatgptBrowserLogin';
     export { ChatGPTOAuthStore } from './src/auth/chatgptOAuthStore';
     export { ChatGPTDeviceLoginModal } from './src/settings';
-    export { selectionScope, readingSelectionScope } from './src/main';
+    export { selectionScope, readingSelectionScope, shouldClearReadingSelection } from './src/main';
     export { normalizeMathMarkdown } from './src/ui/math-markdown';
     export * as toolLabels from './src/ui/tool-label';
     export { WEB_PAGE_CHARS } from './src/tools/web-page';
@@ -169,3 +169,71 @@ export function callbacks(extra = {}) {
 
 /** An app for the settings tab: a vault without files (no skills, no AGENTS.md). */
 export const settingsApp = { vault: { getFolderByPath: () => null, getFileByPath: () => null } };
+
+// Runs the reading-selection listeners with a fake document, clock and chat UI.
+export async function readingSelectionSetup(t) {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 10000 });
+  const previousDocument = globalThis.document;
+  const previousWindow = globalThis.window;
+  const doc = new EventTarget();
+  const state = { selection: null, open: true };
+  const noteNode = {};
+  const chatNode = {};
+  doc.activeElement = null;
+  doc.getSelection = () => state.selection;
+  globalThis.document = doc;
+  globalThis.window = { setTimeout, clearTimeout };
+  const cleanups = [];
+  t.after(() => {
+    for (const cleanup of cleanups) cleanup();
+    globalThis.document = previousDocument;
+    globalThis.window = previousWindow;
+  });
+
+  const plugin = new api.ChatPlugin();
+  const view = new api.ObsidianChatView({}, plugin);
+  const chat = {
+    selection: null, sets: 0, clears: 0,
+    // Like Svelte, return a stable proxy rather than the caller's object.
+    setSelection(scope) { this.selection = new Proxy(scope, {}); this.sets++; },
+    getSelection() { return this.selection; },
+    clearSelection() { this.selection = null; this.clears++; },
+    focus() { doc.activeElement = chatNode; },
+  };
+  view.chatContainer = chat;
+  view.containerEl = { contains: node => node === chatNode };
+  const note = Object.assign(new api.MarkdownView(), {
+    file: { path: 'Review.md' }, getMode: () => 'preview',
+    previewMode: { containerEl: { contains: node => node === noteNode } },
+  });
+  const commands = new Map();
+  const events = new Map();
+  plugin.app = { workspace: {
+    getLeavesOfType: type => type === 'markdown' ? [{ view: note }] : state.open ? [{ view }] : [],
+    on: (name, callback) => events.set(name, callback), onLayoutReady() {},
+  } };
+  for (const name of ['waitForChatStateWrites', 'migrateLegacyPluginData', 'loadSettings', 'activateModelCatalog', 'loadChatHistory']) {
+    plugin[name] = async () => {};
+  }
+  for (const name of ['addSettingTab', 'registerView', 'addRibbonIcon', 'registerEvent']) plugin[name] = () => {};
+  plugin.addCommand = command => commands.set(command.id, command);
+  plugin.register = cleanup => cleanups.push(cleanup);
+  plugin.registerDomEvent = (target, name, callback, options) => {
+    target.addEventListener(name, callback, options);
+    cleanups.push(() => target.removeEventListener(name, callback, options));
+  };
+  plugin.openChat = async () => { assert.fail('selectionchange must not open the chat'); };
+  await plugin.onload();
+  return {
+    plugin, view, chat, doc, state, chatNode, noteNode, commands, events,
+    select(value, anchorNode = noteNode) {
+      state.selection = value === null ? null : { toString: () => value, anchorNode };
+      doc.dispatchEvent(new Event('selectionchange'));
+    },
+    pointerDown(target = chatNode) {
+      const event = new Event('pointerdown');
+      Object.defineProperty(event, 'target', { value: target });
+      doc.dispatchEvent(event);
+    },
+  };
+}

@@ -2,7 +2,7 @@
 // note: the tools enforce it, the instruction in the message isn't enough.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { api, call, callbacks, response, settings, text, transport, vaultApp } from './harness.mjs';
+import { api, call, callbacks, response, settings, text, transport, vaultApp, readingSelectionSetup } from './harness.mjs';
 
 const NOTE = '## Feedback\n- crowded plan\n- low contrast\n\n## Decisions\n- crowded plan stays grouped\n';
 const SELECTED = '- crowded plan\n- low contrast';
@@ -303,4 +303,161 @@ test('A reading-view selection that occurs more than once in the note can\'t be 
   const result = await run(app, 'edit_document', { path: 'Review.md', operation: 'find_replace', find: 'crowded', content: 'busy' }, { filePath: 'Review.md', text: 'crowded plan' });
   assert.equal(result.isError, true);
   assert.equal(files.get('Review.md'), NOTE);
+});
+
+test('An empty reading selection clears only the same automatic pill', () => {
+  const automatic = { filePath: 'Review.md', text: SELECTED };
+  const empty = { toString: () => '' };
+  const clear = (current, tracked = automatic) => api.shouldClearReadingSelection(empty, current, tracked, false, Infinity);
+  assert.equal(clear(automatic), true);
+  assert.equal(api.shouldClearReadingSelection(null, automatic, automatic, false, Infinity), true);
+  assert.equal(clear(null), false); // Dismissed or sent.
+  assert.equal(clear({ ...automatic }), false); // Same text, a different pill.
+  assert.equal(clear({ filePath: 'Other.md', text: 'other' }), false);
+  assert.equal(clear(automatic, null), false); // No automatic selection.
+});
+
+test('Chat focus and the 1.5-second pointer handoff each protect the automatic pill', () => {
+  const automatic = { filePath: 'Review.md', text: SELECTED };
+  const clear = (focused, elapsed) => api.shouldClearReadingSelection(null, automatic, automatic, focused, elapsed);
+  assert.equal(clear(true, Infinity), false);
+  for (const elapsed of [0, 400, 1499, 1500]) assert.equal(clear(false, elapsed), false);
+  assert.equal(clear(false, 1501), true);
+});
+
+test('Nonempty selections outside reading mode, including whitespace, never clear the pill', () => {
+  const automatic = { filePath: 'Review.md', text: SELECTED };
+  for (const value of ['chat answer', 'editor text', '   ']) {
+    assert.equal(api.shouldClearReadingSelection({ toString: () => value }, automatic, automatic, false, Infinity), false);
+  }
+});
+
+test('Reading selections replace the pill; clearing waits for 400 ms without another change', async t => {
+  const { select, chat, view } = await readingSelectionSetup(t);
+  select(SELECTED);
+  t.mock.timers.tick(400);
+  const first = view.getSelection();
+  assert.deepEqual(first, { filePath: 'Review.md', text: SELECTED });
+  select('new selection');
+  t.mock.timers.tick(400);
+  assert.notEqual(view.getSelection(), first);
+  assert.equal(view.getSelection().text, 'new selection');
+
+  select('');
+  t.mock.timers.tick(399);
+  assert.equal(chat.clears, 0);
+  select(null);
+  t.mock.timers.tick(399);
+  assert.equal(chat.clears, 0);
+  t.mock.timers.tick(1);
+  assert.equal(chat.clears, 1);
+  assert.equal(view.getSelection(), null);
+});
+
+test('Focus inside the chat preserves a reading pill even after the handoff grace expires', async t => {
+  const { select, view, doc, chatNode, chat } = await readingSelectionSetup(t);
+  select(SELECTED);
+  t.mock.timers.tick(400);
+  const automatic = view.getSelection();
+  doc.activeElement = chatNode;
+  select('');
+  t.mock.timers.tick(2000);
+  assert.equal(view.getSelection(), automatic);
+  assert.equal(chat.clears, 0);
+});
+
+test('A chat pointerdown protects the pill before input focus arrives, but an outside click does not renew it', async t => {
+  const { select, pointerDown, view, doc, noteNode } = await readingSelectionSetup(t);
+  select(SELECTED);
+  t.mock.timers.tick(400);
+  const automatic = view.getSelection();
+  pointerDown();
+  assert.equal(doc.activeElement, null);
+  select('');
+  t.mock.timers.tick(400);
+  assert.equal(view.getSelection(), automatic);
+  t.mock.timers.tick(701);
+  pointerDown(noteNode);
+  select('');
+  t.mock.timers.tick(400);
+  assert.equal(view.getSelection(), null);
+});
+
+test('Selecting text in the chat leaves the reading pill alone', async t => {
+  const { select, view, chatNode, chat } = await readingSelectionSetup(t);
+  select(SELECTED);
+  t.mock.timers.tick(400);
+  const automatic = view.getSelection();
+  for (const value of ['answer text', '   ']) {
+    select(value, chatNode);
+    t.mock.timers.tick(400);
+    assert.equal(view.getSelection(), automatic);
+  }
+  assert.equal(chat.sets, 1);
+  assert.equal(chat.clears, 0);
+});
+
+test('A dismissed, sent or replaced pill is not cleared by a pending selection change', async t => {
+  const { select, view, chat } = await readingSelectionSetup(t);
+  for (const action of ['dismiss', 'send', 'replace']) {
+    select(SELECTED);
+    t.mock.timers.tick(400);
+    const automatic = view.getSelection();
+    select('');
+    if (action === 'replace') view.setSelection({ ...automatic });
+    else chat.selection = null; // The component consumes or dismisses the pill.
+    const current = view.getSelection();
+    t.mock.timers.tick(400);
+    assert.equal(view.getSelection(), current, action);
+    assert.equal(chat.clears, 0, action);
+  }
+});
+
+for (const source of ['command', 'menu']) {
+  test(`An editor selection from the ${source} survives deselection, even with the same text`, async t => {
+    const { plugin, view, chat, select, doc, commands, events } = await readingSelectionSetup(t);
+    select(SELECTED);
+    t.mock.timers.tick(400);
+    const automatic = view.getSelection();
+    plugin.openChat = async () => view;
+    view.newChat = () => { chat.selection = null; };
+    const editor = {
+      getSelection: () => SELECTED, getValue: () => NOTE,
+      getCursor: () => ({ line: 1, ch: 0 }), posToOffset: () => NOTE.indexOf(SELECTED),
+    };
+    const info = { file: { path: 'Review.md' } };
+    if (source === 'command') {
+      commands.get('send-selection').editorCheckCallback(false, editor, info);
+    } else {
+      let click;
+      const item = { setTitle() { return this; }, setIcon() { return this; }, onClick(fn) { click = fn; } };
+      events.get('editor-menu')({ addItem: fn => fn(item) }, editor, info);
+      click();
+    }
+    await Promise.resolve();
+    const manual = view.getSelection();
+    assert.notEqual(manual, automatic);
+    assert.equal(manual.text, SELECTED);
+    doc.activeElement = null;
+    select('');
+    t.mock.timers.tick(400);
+    assert.equal(view.getSelection(), manual);
+    assert.equal(chat.clears, 0);
+  });
+}
+
+test('Reading selection changes do nothing with the chat closed, including during the debounce', async t => {
+  const { select, state, chat } = await readingSelectionSetup(t);
+  state.open = false;
+  select(SELECTED);
+  t.mock.timers.tick(400);
+  select('');
+  t.mock.timers.tick(400);
+  assert.equal(chat.sets, 0);
+  assert.equal(chat.clears, 0);
+  state.open = true;
+  select(SELECTED);
+  state.open = false;
+  t.mock.timers.tick(400);
+  assert.equal(chat.sets, 0);
 });
