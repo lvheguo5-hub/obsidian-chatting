@@ -171,8 +171,10 @@ export async function sendChatGPTOAuthMessage(
     if (shouldStop()) throw new Error("Request cancelled.");
   };
   checkCancelled();
+  const send = (accessToken: string, accountId: string | undefined) =>
+    sendReconnecting(() => sendOnce(body, accessToken, accountId, identity), checkCancelled);
   try {
-    return await sendOnce(body, credential.accessToken, credential.accountId, identity);
+    return await send(credential.accessToken, credential.accountId);
   } catch (e) {
     // A rejected token (401), e.g. revoked before it expired: refresh once
     // and retry once. A second 401, or a failed refresh, keeps the
@@ -187,7 +189,33 @@ export async function sendChatGPTOAuthMessage(
     }
     checkCancelled();
     if (!renewed) throw e;
-    return sendOnce(body, renewed.accessToken, renewed.accountId, identity);
+    return send(renewed.accessToken, renewed.accountId);
+  }
+}
+
+/** The request got no answer: the connection failed or was closed (net::ERR_CONNECTION_CLOSED). */
+class ConnectionError extends ChatGPTOAuthError {}
+
+/**
+ * Waits before sending again after a lost connection. The whole answer is
+ * buffered by `requestUrl()` (see the top), so a long answer holds one
+ * connection open, and a proxy or network change can close it midway.
+ * Nothing came back and tools run on this side, so sending again is safe.
+ */
+const RECONNECT_DELAYS_MS = [1000, 3000];
+
+async function sendReconnecting(
+  send: () => Promise<UnifiedResponse>,
+  checkCancelled: () => void,
+): Promise<UnifiedResponse> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await send();
+    } catch (e) {
+      if (!(e instanceof ConnectionError) || attempt >= RECONNECT_DELAYS_MS.length) throw e;
+      await new Promise((resolve) => window.setTimeout(resolve, RECONNECT_DELAYS_MS[attempt]));
+      checkCancelled();
+    }
   }
 }
 
@@ -223,7 +251,7 @@ async function sendOnce(
     const err = asRecord(e);
     const status = typeof err.status === "number" || typeof err.status === "string" ? String(err.status) : "";
     const message = typeof err.message === "string" ? err.message : String(e);
-    throw new ChatGPTOAuthError(
+    throw new ConnectionError(
       `ChatGPT OAuth request failed (${status}): ${message}`,
     );
   }

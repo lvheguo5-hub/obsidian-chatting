@@ -123,6 +123,45 @@ test('Parallel 401s share one refresh, and both retry with the new token', async
   assert.deepEqual(calls.bearers.slice(2), ['Bearer fake-access-2', 'Bearer fake-access-2']);
 });
 
+// The waits between tries pass at once.
+async function withFastTimers(run) {
+  const previousWindow = globalThis.window;
+  globalThis.window = { setTimeout: fn => setTimeout(fn, 0) };
+  try { await run(); } finally { globalThis.window = previousWindow; }
+}
+const closed = () => { throw new Error('net::ERR_CONNECTION_CLOSED'); };
+
+test('A closed connection is sent again, up to two more times', () => withFastTimers(async () => {
+  let state = signedInRoute({ refresh: refreshed, respond: n => n === 1 ? closed() : response('chatgpt-oauth', [text('OK')]) });
+  assert.equal((await send()).content[0].text, 'OK');
+  assert.equal(state.calls.bearers.length, 2);
+  assert.equal(state.calls.refresh, 0);
+
+  state = signedInRoute({ refresh: refreshed, respond: closed });
+  await assert.rejects(send(), /ChatGPT OAuth request failed \(\): net::ERR_CONNECTION_CLOSED/);
+  assert.equal(state.calls.bearers.length, 3);
+
+  // An error answer is not a lost connection: no new try.
+  state = signedInRoute({ refresh: refreshed, respond: () => ({ status: 400, json: { detail: 'Bad request' } }) });
+  await assert.rejects(send(), /\(400\): Bad request/);
+  assert.equal(state.calls.bearers.length, 1);
+
+  // After a refreshed token, a closed connection is sent again with the new token.
+  state = signedInRoute({ refresh: refreshed, respond: n => n === 1 ? rejected : n === 2 ? closed() : response('chatgpt-oauth', [text('OK')]) });
+  assert.equal((await send()).content[0].text, 'OK');
+  assert.deepEqual(state.calls.bearers, ['Bearer fake-access-1', 'Bearer fake-access-2', 'Bearer fake-access-2']);
+}));
+
+test('Stop during the wait after a closed connection sends nothing more', () => withFastTimers(async () => {
+  const state = signedInRoute({ refresh: refreshed, respond: closed });
+  let stopped = false;
+  const sending = api.sendChatGPTOAuthMessage(settings('chatgpt-oauth'), [{ role: 'user', content: 'Hi' }], [], 'System', () => stopped);
+  await until(() => state.calls.bearers.length === 1);
+  stopped = true;
+  await assert.rejects(sending, /Request cancelled/);
+  assert.equal(state.calls.bearers.length, 1);
+}));
+
 test('Device-code polling survives network errors and stops when the code expires', async () => {
   const previousWindow = globalThis.window;
   globalThis.window = { setTimeout: fn => setTimeout(fn, 0) };
