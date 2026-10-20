@@ -114,7 +114,9 @@ export async function executeTool(
 // to change that note are refused. Other notes stay editable.
 
 const scopeRefusal = (path: string): ToolResult => ({
-  result: `Not changed: the user selected text in ${path}, and only that selection may change. Use edit_document with operation find_replace and text from within the selection.`,
+  result: extensionOf(path) === "pdf"
+    ? `Not changed: ${path} is read-only. The selection is a PDF excerpt; this PDF cannot be modified.`
+    : `Not changed: the user selected text in ${path}, and only that selection may change. Use edit_document with operation find_replace and text from within the selection.`,
   isError: true,
 });
 
@@ -133,6 +135,10 @@ function scopeGuard(
     return touches ? scopeRefusal(scope.filePath) : null;
   }
   if (toolName === "set_properties" && resolveFile(app, optionalString(input.path))?.path === scope.filePath) {
+    return scopeRefusal(scope.filePath);
+  }
+  if (toolName === "create_file" && extensionOf(scope.filePath) === "pdf"
+    && normalizePath(requiredString(input.path)) === scope.filePath) {
     return scopeRefusal(scope.filePath);
   }
   // A selection in a canvas card scopes the canvas file.
@@ -356,7 +362,7 @@ async function editDocument(
   }
 
   if (scope && file.path === scope.filePath) {
-    if (operation !== "find_replace") return scopeRefusal(file.path);
+    if (extensionOf(file.path) === "pdf" || operation !== "find_replace") return scopeRefusal(file.path);
     if (!find) return { result: "'find' parameter is required for find_replace.", isError: true };
     return await withChange(app, file, changes, () => editInScope(app, file, scope, find, content));
   }

@@ -461,3 +461,183 @@ test('Reading selection changes do nothing with the chat closed, including durin
   t.mock.timers.tick(400);
   assert.equal(chat.sets, 0);
 });
+
+
+test('PDF text is scoped to its file, including backwards selections across text layers', async t => {
+  const { plugin, state, select, pdfNode, pdfEndNode, chatNode, pdf } = await readingSelectionSetup(t);
+  select('  First\n\t line\u00a0\u00a0second   line  ', pdfEndNode, pdfNode);
+  assert.deepEqual(api.readingSelectionScope(plugin.app, state.selection), {
+    filePath: 'Reading/Report.pdf', text: 'First line second line',
+  });
+  select('outside', pdfNode, chatNode);
+  assert.equal(api.readingSelectionScope(plugin.app, state.selection), null);
+  select('   \n\t', pdfNode);
+  assert.equal(api.readingSelectionScope(plugin.app, state.selection), null);
+  select('text', pdfNode);
+  pdf.file = null;
+  assert.equal(api.readingSelectionScope(plugin.app, state.selection), null);
+});
+
+test('PDF selections settle for 400 ms, replace a reading pill and clear after deselection', async t => {
+  const { select, view, chat, pdfNode } = await readingSelectionSetup(t);
+  select(SELECTED);
+  t.mock.timers.tick(400);
+  const reading = view.getSelection();
+  select('first', pdfNode);
+  t.mock.timers.tick(399);
+  assert.equal(view.getSelection(), reading);
+  select(' first\n  second ', pdfNode);
+  t.mock.timers.tick(399);
+  assert.equal(view.getSelection(), reading);
+  t.mock.timers.tick(1);
+  assert.deepEqual(view.getSelection(), { filePath: 'Reading/Report.pdf', text: 'first second' });
+  select('replacement', pdfNode);
+  t.mock.timers.tick(400);
+  assert.equal(view.getSelection().text, 'replacement');
+  select('', pdfNode);
+  t.mock.timers.tick(399);
+  assert.equal(chat.clears, 0);
+  select(null);
+  t.mock.timers.tick(399);
+  assert.equal(chat.clears, 0);
+  t.mock.timers.tick(1);
+  assert.equal(view.getSelection(), null);
+  assert.equal(chat.clears, 1);
+});
+
+test('PDF pills keep the chat-focus, pointer-handoff and nonempty-selection exceptions', async t => {
+  const { select, view, chat, pdfNode, doc, chatNode, pointerDown } = await readingSelectionSetup(t);
+  select('excerpt', pdfNode);
+  t.mock.timers.tick(400);
+  const automatic = view.getSelection();
+  assert.equal(automatic.filePath, 'Reading/Report.pdf');
+  doc.activeElement = chatNode;
+  select('');
+  t.mock.timers.tick(2000);
+  assert.equal(view.getSelection(), automatic);
+  doc.activeElement = null;
+  pointerDown();
+  select('');
+  t.mock.timers.tick(400);
+  assert.equal(view.getSelection(), automatic);
+  t.mock.timers.tick(1101);
+  for (const value of ['answer text', '   ']) {
+    select(value, chatNode);
+    t.mock.timers.tick(400);
+    assert.equal(view.getSelection(), automatic);
+  }
+  pointerDown(pdfNode);
+  select('');
+  t.mock.timers.tick(400);
+  assert.equal(view.getSelection(), null);
+  assert.equal(chat.clears, 1);
+});
+
+test('Dismissing, sending or manually replacing a PDF pill prevents automatic clearing', async t => {
+  const { select, view, chat, pdfNode } = await readingSelectionSetup(t);
+  for (const action of ['dismiss', 'send', 'replace']) {
+    select('excerpt', pdfNode);
+    t.mock.timers.tick(400);
+    const automatic = view.getSelection();
+    assert.equal(automatic.filePath, 'Reading/Report.pdf');
+    select('');
+    if (action === 'replace') view.setSelection({ ...automatic });
+    else chat.selection = null;
+    const current = view.getSelection();
+    t.mock.timers.tick(400);
+    assert.equal(view.getSelection(), current, action);
+    assert.equal(chat.clears, 0, action);
+  }
+});
+
+test('PDF selection changes do nothing while the chat is closed, including during debounce', async t => {
+  const { select, state, chat, pdfNode } = await readingSelectionSetup(t);
+  state.open = false;
+  select('excerpt', pdfNode);
+  t.mock.timers.tick(400);
+  select('');
+  t.mock.timers.tick(400);
+  state.open = true;
+  select('excerpt', pdfNode);
+  state.open = false;
+  t.mock.timers.tick(400);
+  assert.equal(chat.sets, 0);
+  assert.equal(chat.clears, 0);
+});
+
+test('PDF support leaves Markdown whitespace intact and ignores source and unrelated views', async t => {
+  const { select, view, chat, note, noteNode } = await readingSelectionSetup(t);
+  select('  First\n  second\tthird  ');
+  t.mock.timers.tick(400);
+  const reading = view.getSelection();
+  assert.equal(reading.text, 'First\n  second\tthird');
+  note.getMode = () => 'source';
+  for (const node of [noteNode, { id: 'canvas text' }]) {
+    select('other text', node);
+    t.mock.timers.tick(400);
+    assert.equal(view.getSelection(), reading);
+  }
+  assert.equal(chat.sets, 1);
+  assert.equal(chat.clears, 0);
+});
+
+test('A PDF excerpt refuses writes before reading binary data, with a read-only explanation', async () => {
+  for (const path of ['Reading/Report.pdf', 'Reading/Report.PDF']) {
+    const scope = { filePath: path, text: 'excerpt' };
+    const { app, files } = vault({ [path]: '%PDF binary', 'Tasks.md': 'Old' });
+    app.workspace.getActiveFile = () => ({ path });
+    app.vault.cachedRead = async () => assert.fail('must not read a PDF as text');
+    app.vault.process = async () => assert.fail('must not process a PDF as text');
+    for (const [name, input] of [
+      ['edit_document', { path, operation: 'find_replace', find: 'excerpt', content: 'new' }],
+      ['edit_document', { operation: 'find_replace', find: 'excerpt', content: 'new' }],
+      ['edit_document', { path, operation: 'replace_all', content: 'new' }],
+      ['edit_document', { path, operation: 'insert', position: 'end', content: 'new' }],
+      ['set_properties', { path, properties: { status: 'done' } }],
+      ['set_properties', { properties: { status: 'done' } }],
+      ['edit_canvas', { path, operations: [] }],
+      ['create_file', { path, content: 'new' }],
+      ['rename_file', { path, new_path: 'Old.pdf' }],
+      ['delete_file', { path }],
+      ['rename_file', { path: 'Reading', new_path: 'Old' }],
+      ['delete_file', { path: 'Reading/' }],
+      ['delete_file', { path: '/' }],
+    ]) {
+      const result = await run(app, name, input, scope);
+      assert.equal(result.isError, true, name);
+      assert.match(result.result, /read-only.*PDF excerpt/, name);
+      assert.doesNotMatch(result.result, /Use edit_document|select it again/, name);
+    }
+    assert.equal(files.get(path), '%PDF binary');
+    assert.equal(files.has('touched'), false);
+  }
+  const { app, files } = vault({ 'Reading/Report.pdf': '%PDF binary', 'Tasks.md': 'Old' });
+  const other = await run(app, 'edit_document', { path: 'Tasks.md', operation: 'replace_all', content: 'New' }, {
+    filePath: 'Reading/Report.pdf', text: 'excerpt',
+  });
+  assert.equal(other.isError, false);
+  assert.equal(files.get('Tasks.md'), 'New');
+});
+
+for (const provider of ['anthropic', 'openai', 'chatgpt-oauth']) {
+  test(`${provider}: a PDF excerpt reaches the model as read-only context and attempted edits are refused`, async () => {
+    api.setChatGPTOAuthService({ getUsableCredential: async () => ({ accessToken: 'fake-token', accountId: 'fake-account' }) });
+    const { app, files } = vaultApp();
+    const path = 'Reading/Report.pdf';
+    files.set(path, '%PDF binary');
+    const agent = new api.AgentLoop(app, settings(provider));
+    const requests = transport((body, index) => index === 0
+      ? response(provider, [call('e1', 'edit_document', { path, operation: 'find_replace', find: 'excerpt', content: 'new' })], 'tool_use')
+      : response(provider, [text('Here is the rewritten excerpt.')]));
+    const cb = callbacks();
+    await agent.run('Rewrite this', cb, { filePath: path, text: 'excerpt' });
+    assert.deepEqual(cb.errors, []);
+    assert.equal(requests.length, 2);
+    const sent = JSON.stringify(requests[0].messages ?? requests[0].input);
+    assert.match(sent, /read-only excerpt from PDF Reading\/Report\.pdf/);
+    assert.match(sent, /> excerpt/);
+    assert.doesNotMatch(sent, /When using edit_document, use find_replace/);
+    assert.match(JSON.stringify(requests[1]), /read-only.*PDF excerpt/);
+    assert.equal(files.get(path), '%PDF binary');
+  });
+}

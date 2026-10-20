@@ -5,6 +5,7 @@ import {
   type Editor,
   Menu,
   MarkdownView,
+  FileView,
   TFile,
   type TAbstractFile,
   type App,
@@ -57,8 +58,8 @@ export function selectionScope(editor: Editor, text: string, filePath: string): 
 }
 
 /**
- * Text selected in a note's reading view, as a scope. The rendered text has
- * no place in the source, so an edit finds it only where it occurs once.
+ * Text selected in a reading view or PDF, as a scope. Rendered note text
+ * has no source offset; PDF excerpts are read-only.
  */
 export function readingSelectionScope(app: App, selection: Selection | null): SelectionScope | null {
   const text = selection?.toString().trim();
@@ -68,6 +69,13 @@ export function readingSelectionScope(app: App, selection: Selection | null): Se
     const view = leaf.view;
     if (view instanceof MarkdownView && view.file && view.getMode() === "preview" && view.previewMode.containerEl.contains(node)) {
       return { text, filePath: view.file.path };
+    }
+  }
+  for (const leaf of app.workspace.getLeavesOfType("pdf")) {
+    const view = leaf.view;
+    if (view instanceof FileView && view.file && view.containerEl.contains(node)
+      && view.containerEl.contains(selection.focusNode)) {
+      return { text: text.replace(/\s+/g, " "), filePath: view.file.path };
     }
   }
   return null;
@@ -266,7 +274,7 @@ export default class ChatPlugin extends Plugin {
       })
     );
 
-    // Reading view: no editor menu there (and no menu at all on a phone or
+    // Reading view and PDF: no editor menu (and no menu at all on a phone or
     // tablet), so text selected there goes to the open chat once it settles.
     let readingSelectionTimer: number | undefined;
     let automaticSelection: SelectionScope | null = null;

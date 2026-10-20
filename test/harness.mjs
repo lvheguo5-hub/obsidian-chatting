@@ -40,7 +40,7 @@ export const bundled = await build({
     export * as instructions from './src/agent/instructions';
     export * as showInView from './src/ui/show-in-view';
     export * as mentions from './src/ui/mentions';
-    export { TFile, TFolder, MarkdownView } from 'obsidian';
+    export { TFile, TFolder, FileView, MarkdownView } from 'obsidian';
     export { ChangeLog } from './src/tools/undo';
     export { UndoConfirmModal } from './src/ui/undo-confirm';
     export { foldPlan } from './src/ui/fold-turn';
@@ -60,7 +60,8 @@ export const bundled = await build({
       export class App {}
       export class Plugin {}
       export class ItemView {}
-      export class MarkdownView {}
+      export class FileView extends ItemView {}
+      export class MarkdownView extends FileView {}
       export class Scope { constructor(parent) { this.parent = parent; this.keys = []; } register(modifiers, key, func) { this.keys.push({ modifiers, key, func }); } }
       export class Menu {}
       export const MarkdownRenderer = { render: async () => {} };
@@ -178,6 +179,8 @@ export async function readingSelectionSetup(t) {
   const doc = new EventTarget();
   const state = { selection: null, open: true };
   const noteNode = {};
+  const pdfNode = {};
+  const pdfEndNode = {};
   const chatNode = {};
   doc.activeElement = null;
   doc.getSelection = () => state.selection;
@@ -206,10 +209,16 @@ export async function readingSelectionSetup(t) {
     file: { path: 'Review.md' }, getMode: () => 'preview',
     previewMode: { containerEl: { contains: node => node === noteNode } },
   });
+  const pdf = Object.assign(new api.FileView(), {
+    file: { path: 'Reading/Report.pdf' },
+    containerEl: { contains: node => node === pdfNode || node === pdfEndNode },
+  });
   const commands = new Map();
   const events = new Map();
   plugin.app = { workspace: {
-    getLeavesOfType: type => type === 'markdown' ? [{ view: note }] : state.open ? [{ view }] : [],
+    getLeavesOfType: type => type === 'markdown' ? [{ view: note }]
+      : type === 'pdf' ? [{ view: pdf }]
+      : type === 'ochatting-view' && state.open ? [{ view }] : [],
     on: (name, callback) => events.set(name, callback), onLayoutReady() {},
   } };
   for (const name of ['waitForChatStateWrites', 'migrateLegacyPluginData', 'loadSettings', 'activateModelCatalog', 'loadChatHistory']) {
@@ -225,9 +234,9 @@ export async function readingSelectionSetup(t) {
   plugin.openChat = async () => { assert.fail('selectionchange must not open the chat'); };
   await plugin.onload();
   return {
-    plugin, view, chat, doc, state, chatNode, noteNode, commands, events,
-    select(value, anchorNode = noteNode) {
-      state.selection = value === null ? null : { toString: () => value, anchorNode };
+    plugin, view, chat, doc, state, chatNode, noteNode, pdfNode, pdfEndNode, note, pdf, commands, events,
+    select(value, anchorNode = noteNode, focusNode = anchorNode) {
+      state.selection = value === null ? null : { toString: () => value, anchorNode, focusNode };
       doc.dispatchEvent(new Event('selectionchange'));
     },
     pointerDown(target = chatNode) {

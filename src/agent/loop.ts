@@ -23,6 +23,7 @@ import { trimHistory, cutBeforeTurn, editableTurn, newTurnId, withoutOldToolImag
 import { debugLog } from "../debug";
 import { attachmentBudgetError } from "../files/attachments";
 import { RequestBudgetError } from "../api/request-budget";
+import { extensionOf } from "../images";
 
 /**
  * The API history: saving keeps the last 80 messages. Before a turn, a
@@ -265,7 +266,9 @@ export class AgentLoop {
       fullMessage = [
         contextPrefix,
         "",
-        `[Selection scope: The user has selected text in ${selection.filePath}. Work only within this selection. When using edit_document, use find_replace with text from within this selection; 'find' is matched inside the selection, so no surrounding context is needed. Do not modify text outside the selection.]`,
+        extensionOf(selection.filePath) === "pdf"
+          ? `[Selection scope: The user has selected a read-only excerpt from PDF ${selection.filePath}. Use it as context for your answer. Do not modify, rename or delete this PDF. If a rewrite is requested, provide it in the chat.]`
+          : `[Selection scope: The user has selected text in ${selection.filePath}. Work only within this selection. When using edit_document, use find_replace with text from within this selection; 'find' is matched inside the selection, so no surrounding context is needed. Do not modify text outside the selection.]`,
         "",
         `Selected text:`,
         selection.text.split(/\r?\n/).map((line) => `> ${line}`).join("\n"),
