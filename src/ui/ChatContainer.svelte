@@ -13,6 +13,7 @@
   import { foldPlan } from "./fold-turn";
   import type { ChangesState } from "./chat-view";
   import { AttachmentPreparation } from "./attachment-preparation";
+  import { selectionCountLabel } from "./selection-count";
 
   const MAX_IMAGE_COUNT = 4;
   const MAX_FILE_COUNT = 4;
@@ -225,6 +226,7 @@
 
   // Selection scope (shown as a pill above input)
   let selection = $state<SelectionScope | null>(null);
+  const selectionCount = $derived(selection ? selectionCountLabel(selection.text) : "");
 
   // ask_user support
   let askUserResolve: ((value: string) => void) | null = $state(null);
@@ -980,7 +982,7 @@
   <!-- Header -->
   <div class="ochatting-header">
     <button
-      class="ochatting-icon-btn"
+      class="ochatting-compact-btn ochatting-icon-btn"
       class:is-active={historyOpen}
       type="button"
       onclick={toggleHistory}
@@ -995,7 +997,7 @@
       <span class="ochatting-header-model">{displayModel || "No model"}</span>
     </div>
     <button
-      class="ochatting-follow-btn"
+      class="ochatting-compact-btn ochatting-follow-btn"
       class:is-active={followEdits}
       type="button"
       onclick={onToggleFollow}
@@ -1011,7 +1013,7 @@
     </button>
     <!-- Nothing to clear in an empty chat: the trash folds away until there is -->
     <button
-      class="ochatting-clear-btn"
+      class="ochatting-compact-btn ochatting-clear-btn"
       class:ochatting-clear-folded={messages.length === 0}
       type="button"
       onclick={onClear}
@@ -1023,7 +1025,7 @@
       <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
     </button>
     <button
-      class="ochatting-icon-btn"
+      class="ochatting-compact-btn ochatting-icon-btn"
       type="button"
       onclick={newChat}
       aria-label="New chat"
@@ -1072,7 +1074,7 @@
                 <span class="ochatting-history-date">{formatDate(conversation.updatedAt)}</span>
               </button>
               <button
-                class="ochatting-icon-btn"
+                class="ochatting-compact-btn ochatting-icon-btn"
                 type="button"
                 onclick={() => startRename(conversation)}
                 aria-label={`Rename ${conversation.title}`}
@@ -1081,7 +1083,7 @@
                 <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
               </button>
               <button
-                class="ochatting-icon-btn"
+                class="ochatting-compact-btn ochatting-icon-btn"
                 type="button"
                 onclick={() => { renamingId = null; deletingId = conversation.id; }}
                 aria-label={`Delete ${conversation.title}`}
@@ -1152,7 +1154,7 @@
             {#if msg.turnId && editable(msg.turnId)}
               <div class="ochatting-msg-actions ochatting-hover-actions">
                 <button
-                  class="ochatting-action-btn"
+                  class="ochatting-compact-btn ochatting-action-btn"
                   type="button"
                   onclick={() => startEdit(msg)}
                   aria-label="Edit message"
@@ -1172,7 +1174,7 @@
           </div>
           <div class="ochatting-msg-actions" class:ochatting-hover-actions={msg.id !== lastAnswerId}>
             <button
-              class="ochatting-action-btn"
+              class="ochatting-compact-btn ochatting-action-btn"
               type="button"
               onclick={() => onCopy(msg.text ?? "")}
               aria-label="Copy answer"
@@ -1182,7 +1184,7 @@
             </button>
             {#if msg.id === lastAnswerId && !busy && (!lastTurnId || editable(lastTurnId))}
               <button
-                class="ochatting-action-btn"
+                class="ochatting-compact-btn ochatting-action-btn"
                 type="button"
                 onclick={onRegenerate}
                 aria-label="Regenerate answer"
@@ -1215,7 +1217,7 @@
             {#if msg.changesState === "undoable" && msg.turnId}
               {@const turnId = msg.turnId}
               <button
-                class="ochatting-action-btn ochatting-changes-undo"
+                class="ochatting-compact-btn ochatting-action-btn ochatting-changes-undo"
                 type="button"
                 disabled={busy}
                 onclick={(e) => { e.preventDefault(); e.stopPropagation(); onUndo(turnId); }}
@@ -1266,7 +1268,7 @@
             {#if msg.changesState === "undoable" && msg.turnId}
               {@const turnId = msg.turnId}
               <button
-                class="ochatting-action-btn ochatting-changes-undo"
+                class="ochatting-compact-btn ochatting-action-btn ochatting-changes-undo"
                 type="button"
                 disabled={busy}
                 onclick={(e) => { e.preventDefault(); e.stopPropagation(); onUndo(turnId); }}
@@ -1300,7 +1302,7 @@
     </div>
     {#if showJump}
       <!-- Scrolled up: back to the latest message (sticks to the view's bottom edge) -->
-      <button class="ochatting-jump-btn" type="button" onclick={jumpToBottom} aria-label="Scroll to the latest message" title="Scroll to the latest message">
+      <button class="ochatting-compact-btn ochatting-jump-btn" type="button" onclick={jumpToBottom} aria-label="Scroll to the latest message" title="Scroll to the latest message">
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>
       </button>
     {/if}
@@ -1311,10 +1313,11 @@
     <div class="ochatting-selection-pill">
       <div class="ochatting-selection-content">
         <span class="ochatting-selection-label">Selection from {selection.filePath.split("/").pop()}</span>
+        <span class="ochatting-selection-count">{selectionCount}</span>
         <span class="ochatting-selection-preview">{selection.text.substring(0, 80)}{selection.text.length > 80 ? "..." : ""}</span>
       </div>
       <button
-        class="ochatting-selection-dismiss"
+        class="ochatting-compact-btn ochatting-selection-dismiss"
         onclick={() => selection = null}
         aria-label="Remove selection"
       >
@@ -1332,7 +1335,7 @@
           </span>
           <span title={`${file.fileName}, ${formatBytes(file.sizeBytes)}`}>{file.fileName}</span>
           <button
-            class="ochatting-attachment-remove"
+            class="ochatting-compact-btn ochatting-attachment-remove"
             type="button"
             onclick={() => removeFile(file.id)}
             disabled={!inputEnabled}
@@ -1345,7 +1348,7 @@
           <img src={imageDataUrl(image)} alt={image.fileName} />
           <span title={image.fileName}>{image.fileName}</span>
           <button
-            class="ochatting-attachment-remove"
+            class="ochatting-compact-btn ochatting-attachment-remove"
             type="button"
             onclick={() => removeAttachment(image.id)}
             disabled={!inputEnabled}
@@ -1393,7 +1396,7 @@
       aria-label="Choose images or files"
     />
     <button
-      class="ochatting-attach-btn"
+      class="ochatting-compact-btn ochatting-attach-btn"
       type="button"
       onclick={openImagePicker}
       disabled={!inputEnabled || attachmentLoading || (attachments.length >= MAX_IMAGE_COUNT && fileAttachments.length >= MAX_FILE_COUNT)}
@@ -1420,7 +1423,7 @@
     ></textarea>
     {#if inputEnabled}
       <button
-        class="ochatting-send-btn"
+        class="ochatting-compact-btn ochatting-send-btn"
         onclick={handleSend}
         disabled={attachmentLoading || composerLocked}
         aria-label="Send message"
@@ -1430,7 +1433,7 @@
       </button>
     {:else}
       <button
-        class="ochatting-send-btn ochatting-stop-btn"
+        class="ochatting-compact-btn ochatting-send-btn ochatting-stop-btn"
         onclick={onStop}
         aria-label="Stop generation"
       >
@@ -1448,6 +1451,17 @@
     flex-direction: column;
     height: 100%;
     overflow: hidden;
+  }
+
+  /* Obsidian's tablet padding otherwise squeezes compact button icons to zero. */
+  :global(.is-mobile) button.ochatting-compact-btn {
+    padding: 0;
+  }
+
+  /* Keep at least the touch area previously imposed by the tablet padding. */
+  :global(.is-mobile) button.ochatting-compact-btn:not(.ochatting-clear-folded) {
+    min-width: 40px;
+    min-height: 40px;
   }
 
   /* ─── Header ────────────────────────────────────────────────────────── */
@@ -2457,6 +2471,15 @@
     font-size: var(--font-ui-smaller);
     color: var(--text-muted);
     font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ochatting-selection-count {
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+    overflow-wrap: anywhere;
   }
 
   .ochatting-selection-preview {
